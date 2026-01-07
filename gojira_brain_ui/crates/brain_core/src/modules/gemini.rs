@@ -49,7 +49,7 @@ pub async fn generate_tone(
         ],
         "generationConfig": {
             "responseMimeType": "application/json",
-            "responseSchema": {
+            "responseJsonSchema": {
                 "type": "OBJECT",
                 "properties": {
                     "reasoning": { "type": "STRING" },
@@ -124,4 +124,3 @@ fn parse_tone_response(body: &str) -> Result<ToneResponse, String> {
         .or_else(|_| serde_json::from_str::<ToneResponse>(body))
         .map_err(|e| format!("{e}: {text}"))
 }
-

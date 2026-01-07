@@ -76,7 +76,9 @@ Flow:
 
 ## 5. GEMINI INTEGRATION (Structured Output)
 
-To prevent hallucinated JSON, we use Gemini's response_schema.
+To prevent hallucinated JSON, we use Gemini's structured output schema.
+
+NOTE (REST vs SDK): When calling the REST API directly (e.g. Rust `reqwest`), the `generationConfig` fields are camelCase.
 
 Payload Construction:
 
@@ -86,8 +88,8 @@ JSON
 {
   "contents": [{ "parts": [{ "text": "..." }] }],
   "generationConfig": {
-    "response_mime_type": "application/json",
-    "response_schema": {
+    "responseMimeType": "application/json",
+    "responseJsonSchema": {
       "type": "OBJECT",
       "properties": {
         "reasoning": { "type": "STRING" },
@@ -172,7 +174,7 @@ Rust Core:
 
 Gemini Service:
 
-- Implement gemini.rs with the response_schema payload.
+- Implement `gemini.rs` with a `responseMimeType` + `responseJsonSchema` payload (REST, camelCase).
 
 Tauri Commands:
 
@@ -191,4 +193,3 @@ CRITICAL REMINDER:
 - Ensure tauri.conf.json enables the necessary permissions for stronghold, http (for Gemini), and single-instance.
 
 GO! Build the Brain.
-
