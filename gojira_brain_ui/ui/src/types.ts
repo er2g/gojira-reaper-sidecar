@@ -14,6 +14,12 @@ export type GojiraInstance = {
   confidence: Confidence;
 };
 
+export type HandshakePayload = {
+  session_token: string;
+  instances: GojiraInstance[];
+  validation_report: Record<string, string>;
+};
+
 export type ParamChange = {
   index: number;
   value: number;
@@ -31,4 +37,3 @@ export type PreviewResult = {
   params: ParamChange[];
   diff: DiffItem[];
 };
-

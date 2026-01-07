@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/brain_core",
+  "crates/brain_cli",
+  "src-tauri",
+]
+

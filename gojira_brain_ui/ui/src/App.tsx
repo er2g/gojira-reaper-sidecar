@@ -4,7 +4,7 @@ import { Store } from "@tauri-apps/plugin-store";
 import React, { useEffect, useMemo, useState } from "react";
 import StatusBar from "./components/StatusBar";
 import DiffViewer from "./components/DiffViewer";
-import type { GojiraInstance, PreviewResult, StatusEvent } from "./types";
+import type { GojiraInstance, HandshakePayload, PreviewResult, StatusEvent } from "./types";
 
 const store = new Store("prefs.bin");
 
@@ -35,12 +35,13 @@ export default function App() {
         await listen<StatusEvent>("reaper://status", (e) => setStatus(e.payload)),
       );
       unlistenFns.push(
-        await listen<GojiraInstance[]>("reaper://handshake", async (e) => {
-          setInstances(e.payload);
+        await listen<HandshakePayload>("reaper://handshake", async (e) => {
+          setInstances(e.payload.instances);
           const last = (await store.get<string>("last_target_fx_guid")) ?? "";
           const next =
-            (last && e.payload.find((x) => x.fx_guid === last)?.fx_guid) ??
-            e.payload[0]?.fx_guid ??
+            (last &&
+              e.payload.instances.find((x) => x.fx_guid === last)?.fx_guid) ??
+            e.payload.instances[0]?.fx_guid ??
             "";
           setSelectedFxGuid(next);
           await store.set("last_target_fx_guid", next);
@@ -227,4 +228,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -1,5 +1,5 @@
-use crate::param_map;
-use gojira_protocol::{MergeMode, ParamChange};
+use crate::modules::param_map;
+use crate::modules::protocol::{MergeMode, ParamChange};
 use std::collections::HashSet;
 
 #[derive(Clone, Copy)]
@@ -10,7 +10,10 @@ struct ModuleDef {
 
 const MODULES: &[ModuleDef] = &[
     ModuleDef {
-        bypass: &[param_map::pedals::wow_pitch::PEDAL_SWITCH, param_map::pedals::wow_pitch::ACTIVE],
+        bypass: &[
+            param_map::pedals::wow_pitch::PEDAL_SWITCH,
+            param_map::pedals::wow_pitch::ACTIVE,
+        ],
         params: &[
             param_map::pedals::wow_pitch::PEDAL_SWITCH,
             param_map::pedals::wow_pitch::ACTIVE,
@@ -91,6 +94,29 @@ const MODULES: &[ModuleDef] = &[
     },
 ];
 
+pub fn sanitize_params(params: Vec<ParamChange>) -> Result<Vec<ParamChange>, String> {
+    const MAX_PARAM_INDEX: i32 = 4096;
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for p in params.into_iter().rev() {
+        if !seen.insert(p.index) {
+            continue;
+        }
+        if p.index < 0 || p.index > MAX_PARAM_INDEX {
+            return Err(format!("invalid param index: {}", p.index));
+        }
+        if !p.value.is_finite() {
+            return Err(format!("non-finite value at index {}", p.index));
+        }
+        out.push(ParamChange {
+            index: p.index,
+            value: p.value.clamp(0.0, 1.0),
+        });
+    }
+    out.reverse();
+    Ok(out)
+}
+
 pub fn apply_replace_active_cleaner(mode: MergeMode, params: Vec<ParamChange>) -> Vec<ParamChange> {
     if !matches!(mode, MergeMode::ReplaceActive) {
         return params;
@@ -100,9 +126,7 @@ pub fn apply_replace_active_cleaner(mode: MergeMode, params: Vec<ParamChange>) -
         .iter()
         .enumerate()
         .filter(|(_, m)| {
-            params.iter().any(|p| {
-                m.params.contains(&p.index) && !m.bypass.contains(&p.index)
-            })
+            params.iter().any(|p| m.params.contains(&p.index) && !m.bypass.contains(&p.index))
         })
         .map(|(i, _)| i)
         .collect();
@@ -126,3 +150,4 @@ pub fn apply_replace_active_cleaner(mode: MergeMode, params: Vec<ParamChange>) -
 
     out
 }
+

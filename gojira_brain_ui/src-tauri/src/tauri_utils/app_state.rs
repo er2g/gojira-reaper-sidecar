@@ -1,5 +1,4 @@
-use gojira_protocol::ClientCommand;
-use gojira_protocol::ParamChange;
+use brain_core::protocol::{ClientCommand, ParamChange};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tokio::sync::mpsc;

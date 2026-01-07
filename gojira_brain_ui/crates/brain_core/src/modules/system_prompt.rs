@@ -11,3 +11,4 @@ Noise Gate (Index 2): Set high (>0.7) for Staccato/Djent.
 EQ: 0.5 is Flat. To cut mud, set 250Hz/500Hz bands below 0.5.
 
 OUTPUT FORMAT (JSON): { "reasoning": "Short explanation of choices...", "params": [ { "index": int, "value": float }, ... ] } ONLY output valid JSON."#;
+

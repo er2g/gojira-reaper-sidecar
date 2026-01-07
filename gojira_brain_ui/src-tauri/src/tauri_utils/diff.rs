@@ -1,5 +1,5 @@
-use crate::param_map;
-use gojira_protocol::ParamChange;
+use brain_core::param_map;
+use brain_core::protocol::ParamChange;
 
 #[derive(serde::Serialize, Debug, Clone)]
 pub struct DiffItem {

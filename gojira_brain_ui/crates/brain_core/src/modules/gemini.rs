@@ -1,5 +1,5 @@
-use crate::system_prompt::SYSTEM_PROMPT;
-use gojira_protocol::ParamChange;
+use crate::modules::protocol::ParamChange;
+use crate::modules::system_prompt::SYSTEM_PROMPT;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -27,7 +27,11 @@ pub enum GeminiError {
     Parse(String),
 }
 
-pub async fn generate_tone(api_key: &str, model: &str, req: ToneRequest) -> Result<ToneResponse, GeminiError> {
+pub async fn generate_tone(
+    api_key: &str,
+    model: &str,
+    req: ToneRequest,
+) -> Result<ToneResponse, GeminiError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()?;
@@ -37,15 +41,15 @@ pub async fn generate_tone(api_key: &str, model: &str, req: ToneRequest) -> Resu
         model, api_key
     );
 
-    let prompt = format!("{SYSTEM_PROMPT}\n\nUSER:\n{}", req.user_prompt);
+    let full_prompt = format!("{SYSTEM_PROMPT}\n\nUSER:\n{}", req.user_prompt);
 
     let payload = json!({
         "contents": [
-            { "parts": [ { "text": prompt } ] }
+            { "role": "user", "parts": [ { "text": full_prompt } ] }
         ],
         "generationConfig": {
-            "response_mime_type": "application/json",
-            "response_schema": {
+            "responseMimeType": "application/json",
+            "responseSchema": {
                 "type": "OBJECT",
                 "properties": {
                     "reasoning": { "type": "STRING" },
@@ -115,7 +119,7 @@ fn parse_tone_response(body: &str) -> Result<ToneResponse, String> {
         .and_then(|p| p.text)
         .ok_or_else(|| format!("missing candidates.content.parts.text: {body}"))?;
 
-    // If Gemini respects response_schema, `text` should be valid JSON.
+    // If Gemini respects structured output, `text` should be valid JSON.
     serde_json::from_str::<ToneResponse>(&text)
         .or_else(|_| serde_json::from_str::<ToneResponse>(body))
         .map_err(|e| format!("{e}: {text}"))

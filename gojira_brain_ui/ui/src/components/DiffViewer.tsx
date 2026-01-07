@@ -32,4 +32,3 @@ export default function DiffViewer({ items }: { items: DiffItem[] }) {
     </div>
   );
 }
-

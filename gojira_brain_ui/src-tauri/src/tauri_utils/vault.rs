@@ -6,12 +6,10 @@ use zeroize::Zeroizing;
 
 #[derive(Debug, Error)]
 pub enum VaultError {
-    #[error("vault passphrase not set")]
-    PassphraseNotSet,
-    #[error("stronghold error: {0}")]
-    Stronghold(#[from] tauri_plugin_stronghold::stronghold::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("stronghold error: {0}")]
+    Stronghold(#[from] tauri_plugin_stronghold::stronghold::Error),
 }
 
 pub struct VaultPaths {
@@ -86,3 +84,4 @@ pub fn clear_api_key<R: tauri::Runtime>(
     stronghold.save()?;
     Ok(())
 }
+

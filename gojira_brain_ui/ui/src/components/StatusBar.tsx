@@ -41,4 +41,3 @@ export default function StatusBar({ status }: { status: StatusEvent }) {
     </div>
   );
 }
-

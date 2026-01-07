@@ -7,3 +7,5 @@ gojira_brain_ui/node_modules
 gojira_brain_ui/dist
 gojira_brain_ui/.tauri
 
+gojira_brain_ui/ui/node_modules
+gojira_brain_ui/ui/dist
