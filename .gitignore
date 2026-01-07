@@ -1,0 +1,9 @@
+/target
+**/target
+**/*.rs.bk
+
+# Tauri / UI (future)
+gojira_brain_ui/node_modules
+gojira_brain_ui/dist
+gojira_brain_ui/.tauri
+

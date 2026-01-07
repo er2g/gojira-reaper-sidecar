@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+  "reaper_gojira_dll",
+  "gojira_brain_ui",
+]
+
