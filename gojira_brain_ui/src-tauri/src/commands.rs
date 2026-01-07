@@ -8,6 +8,7 @@ use tauri::{AppHandle, State};
 use crate::tauri_utils::app_state::{AppState, UiCommand};
 use crate::tauri_utils::diff::{diff_params, DiffItem};
 use crate::tauri_utils::vault;
+use serde::Deserialize;
 
 #[derive(Serialize)]
 pub struct HandshakePayload {
@@ -21,6 +22,13 @@ pub struct PreviewResult {
     pub reasoning: String,
     pub params: Vec<ParamChange>,
     pub diff: Vec<DiffItem>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexRemapEntry {
+    pub from: i32,
+    pub to: i32,
 }
 
 #[tauri::command]
@@ -87,6 +95,40 @@ pub fn clear_api_key(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn get_index_remap(state: State<'_, AppState>) -> Result<HashMap<i32, i32>, String> {
+    state
+        .index_remap
+        .lock()
+        .map(|m| m.clone())
+        .map_err(|_| "index remap lock poisoned".to_string())
+}
+
+#[tauri::command]
+pub fn set_index_remap(state: State<'_, AppState>, entries: Vec<IndexRemapEntry>) -> Result<(), String> {
+    let mut map = state
+        .index_remap
+        .lock()
+        .map_err(|_| "index remap lock poisoned".to_string())?;
+    map.clear();
+    for e in entries {
+        if e.from != e.to {
+            map.insert(e.from, e.to);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reset_index_remap(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .index_remap
+        .lock()
+        .map_err(|_| "index remap lock poisoned".to_string())?
+        .clear();
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn generate_tone(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -116,8 +158,16 @@ pub async fn generate_tone(
     .await
     .map_err(|e| e.to_string())?;
 
+    let index_remap = state
+        .index_remap
+        .lock()
+        .map_err(|_| "index remap lock poisoned".to_string())?
+        .clone();
+
     let mut params = sanitize_params(tone.params).map_err(|e| e.to_string())?;
     params = apply_replace_active_cleaner(MergeMode::ReplaceActive, params);
+    params = apply_index_remap(params, &index_remap);
+    params = sanitize_params(params).map_err(|e| e.to_string())?;
 
     let old = state
         .param_cache
@@ -126,7 +176,7 @@ pub async fn generate_tone(
         .get(&target_fx_guid)
         .cloned()
         .unwrap_or_default();
-    let d = diff_params(&old, &params);
+    let d = diff_params(&old, &params, &index_remap);
 
     if !preview_only {
         apply_tone_inner(&state, &target_fx_guid, MergeMode::ReplaceActive, params.clone()).await?;
@@ -155,8 +205,16 @@ async fn apply_tone_inner(
     mode: MergeMode,
     params: Vec<ParamChange>,
 ) -> Result<(), String> {
+    let index_remap = state
+        .index_remap
+        .lock()
+        .map_err(|_| "index remap lock poisoned".to_string())?
+        .clone();
+
     let mut params = sanitize_params(params).map_err(|e| e.to_string())?;
     params = apply_replace_active_cleaner(mode, params);
+    params = apply_index_remap(params, &index_remap);
+    params = sanitize_params(params).map_err(|e| e.to_string())?;
 
     let cmd = ClientCommand::SetTone {
         session_token: String::new(),
@@ -180,6 +238,21 @@ async fn apply_tone_inner(
     Ok(())
 }
 
+fn apply_index_remap(params: Vec<ParamChange>, index_remap: &HashMap<i32, i32>) -> Vec<ParamChange> {
+    if index_remap.is_empty() {
+        return params;
+    }
+    params
+        .into_iter()
+        .map(|mut p| {
+            if let Some(to) = index_remap.get(&p.index) {
+                p.index = *to;
+            }
+            p
+        })
+        .collect()
+}
+
 fn chrono_nanos() -> u128 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -187,4 +260,3 @@ fn chrono_nanos() -> u128 {
         .unwrap_or_default()
         .as_nanos()
 }
-

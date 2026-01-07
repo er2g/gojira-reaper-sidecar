@@ -1,5 +1,6 @@
 use brain_core::param_map;
 use brain_core::protocol::ParamChange;
+use std::collections::HashMap;
 
 #[derive(serde::Serialize, Debug, Clone)]
 pub struct DiffItem {
@@ -9,14 +10,19 @@ pub struct DiffItem {
     pub new_value: Option<f32>,
 }
 
-pub fn diff_params(old_params: &[ParamChange], new_params: &[ParamChange]) -> Vec<DiffItem> {
-    use std::collections::HashMap;
+pub fn diff_params(
+    old_params: &[ParamChange],
+    new_params: &[ParamChange],
+    index_remap: &HashMap<i32, i32>,
+) -> Vec<DiffItem> {
     let old: HashMap<i32, f32> = old_params.iter().map(|p| (p.index, p.value)).collect();
     let new: HashMap<i32, f32> = new_params.iter().map(|p| (p.index, p.value)).collect();
 
     let mut keys: Vec<i32> = old.keys().chain(new.keys()).copied().collect();
     keys.sort_unstable();
     keys.dedup();
+
+    let reverse = reverse_index_remap(index_remap);
 
     keys.into_iter()
         .filter_map(|idx| {
@@ -26,7 +32,7 @@ pub fn diff_params(old_params: &[ParamChange], new_params: &[ParamChange]) -> Ve
                 return None;
             }
             Some(DiffItem {
-                label: label_for_index(idx).to_string(),
+                label: label_for_index(idx, &reverse).to_string(),
                 index: idx,
                 old_value: o,
                 new_value: n,
@@ -35,8 +41,9 @@ pub fn diff_params(old_params: &[ParamChange], new_params: &[ParamChange]) -> Ve
         .collect()
 }
 
-fn label_for_index(index: i32) -> &'static str {
-    match index {
+fn label_for_index(index: i32, reverse_index_remap: &HashMap<i32, i32>) -> &'static str {
+    let canonical = reverse_index_remap.get(&index).copied().unwrap_or(index);
+    match canonical {
         param_map::global::INPUT_GAIN => "Global: Input Gain",
         param_map::global::OUTPUT_GAIN => "Global: Output Gain",
         param_map::global::NOISE_GATE => "Global: Noise Gate",
@@ -56,3 +63,10 @@ fn label_for_index(index: i32) -> &'static str {
     }
 }
 
+fn reverse_index_remap(index_remap: &HashMap<i32, i32>) -> HashMap<i32, i32> {
+    let mut out = HashMap::new();
+    for (canonical, actual) in index_remap {
+        out.insert(*actual, *canonical);
+    }
+    out
+}

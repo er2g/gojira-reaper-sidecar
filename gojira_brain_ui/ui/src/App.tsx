@@ -4,6 +4,7 @@ import { Store } from "@tauri-apps/plugin-store";
 import React, { useEffect, useMemo, useState } from "react";
 import StatusBar from "./components/StatusBar";
 import DiffViewer from "./components/DiffViewer";
+import IndexMappingEditor from "./components/IndexMappingEditor";
 import type { GojiraInstance, HandshakePayload, PreviewResult, StatusEvent } from "./types";
 
 const store = new Store("prefs.bin");
@@ -12,6 +13,10 @@ export default function App() {
   const [status, setStatus] = useState<StatusEvent>({ status: "connecting" });
   const [instances, setInstances] = useState<GojiraInstance[]>([]);
   const [selectedFxGuid, setSelectedFxGuid] = useState<string>("");
+  const [validationReport, setValidationReport] = useState<Record<string, string>>(
+    {},
+  );
+  const [indexRemap, setIndexRemap] = useState<Record<number, number>>({});
 
   const [vaultPassphrase, setVaultPassphrase] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -37,6 +42,7 @@ export default function App() {
       unlistenFns.push(
         await listen<HandshakePayload>("reaper://handshake", async (e) => {
           setInstances(e.payload.instances);
+          setValidationReport(e.payload.validation_report ?? {});
           const last = (await store.get<string>("last_target_fx_guid")) ?? "";
           const next =
             (last &&
@@ -55,6 +61,24 @@ export default function App() {
       );
 
       await invoke("connect_ws");
+
+      const saved =
+        (await store.get<Record<string, number>>("index_remap_v1")) ?? {};
+      const normalized: Record<number, number> = {};
+      for (const [k, v] of Object.entries(saved)) {
+        const from = Number(k);
+        const to = Number(v);
+        if (Number.isFinite(from) && Number.isFinite(to) && from !== to) {
+          normalized[from] = to;
+        }
+      }
+      setIndexRemap(normalized);
+      await invoke("set_index_remap", {
+        entries: Object.entries(normalized).map(([from, to]) => ({
+          from: Number(from),
+          to: Number(to),
+        })),
+      });
     })();
 
     return () => {
@@ -62,6 +86,23 @@ export default function App() {
       unlistenFns = [];
     };
   }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const toStore: Record<string, number> = {};
+      for (const [from, to] of Object.entries(indexRemap)) {
+        toStore[from] = to;
+      }
+      await store.set("index_remap_v1", toStore);
+      await store.save();
+      await invoke("set_index_remap", {
+        entries: Object.entries(indexRemap).map(([from, to]) => ({
+          from: Number(from),
+          to: Number(to),
+        })),
+      });
+    })();
+  }, [indexRemap]);
 
   useEffect(() => {
     if (!selectedFxGuid) return;
@@ -223,6 +264,23 @@ export default function App() {
           <div className="notes">{preview?.reasoning || "—"}</div>
           <h3>Diff</h3>
           <DiffViewer items={preview?.diff ?? []} />
+        </section>
+
+        <section className="card span2">
+          <h2>Index Mapping</h2>
+          <div className="muted" style={{ marginBottom: 10 }}>
+            Validator report:{" "}
+            {Object.keys(validationReport).length
+              ? Object.entries(validationReport)
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join(" | ")
+              : "—"}
+          </div>
+          <IndexMappingEditor
+            remap={indexRemap}
+            onChange={setIndexRemap}
+            validationReport={validationReport}
+          />
         </section>
       </div>
     </div>

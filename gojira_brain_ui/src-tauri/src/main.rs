@@ -29,6 +29,7 @@ fn main() {
                 tx,
                 param_cache: Mutex::new(HashMap::new()),
                 vault: Mutex::new(VaultState::default()),
+                index_remap: Mutex::new(HashMap::new()),
             });
 
             let handle = app.handle().clone();
@@ -45,6 +46,9 @@ fn main() {
             commands::has_api_key,
             commands::save_api_key,
             commands::clear_api_key,
+            commands::get_index_remap,
+            commands::set_index_remap,
+            commands::reset_index_remap,
             commands::generate_tone,
             commands::apply_tone
         ])

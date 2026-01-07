@@ -7,6 +7,8 @@ pub struct AppState {
     pub tx: mpsc::Sender<UiCommand>,
     pub param_cache: Mutex<HashMap<String, Vec<ParamChange>>>,
     pub vault: Mutex<VaultState>,
+    /// Index translation (canonical -> actual) for plugin version drift.
+    pub index_remap: Mutex<HashMap<i32, i32>>,
 }
 
 #[derive(Default)]
@@ -19,4 +21,3 @@ pub enum UiCommand {
     Disconnect,
     SendToDll(ClientCommand),
 }
-
