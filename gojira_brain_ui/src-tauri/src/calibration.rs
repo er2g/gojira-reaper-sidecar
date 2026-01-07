@@ -9,4 +9,3 @@ pub fn gain_db_to_unit(db: f32) -> f32 {
 pub fn on_off(on: bool) -> f32 {
     if on { 1.0 } else { 0.0 }
 }
-

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "gojira_protocol",
   "reaper_gojira_dll",
-  "gojira_brain_ui",
+  "gojira_brain_ui/src-tauri",
 ]
-

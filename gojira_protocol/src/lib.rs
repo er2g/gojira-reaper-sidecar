@@ -40,6 +40,16 @@ pub enum ClientCommand {
     },
 }
 
+impl ClientCommand {
+    pub fn session_token(&self) -> &str {
+        match self {
+            ClientCommand::HandshakeAck { session_token } => session_token,
+            ClientCommand::RefreshInstances { session_token } => session_token,
+            ClientCommand::SetTone { session_token, .. } => session_token,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum MergeMode {

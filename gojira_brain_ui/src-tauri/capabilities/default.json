@@ -1,0 +1,12 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for Gojira Brain",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "single-instance:default",
+    "store:default",
+    "stronghold:default"
+  ]
+}
+

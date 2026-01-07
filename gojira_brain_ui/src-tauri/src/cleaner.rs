@@ -1,5 +1,5 @@
 use crate::param_map;
-use crate::protocol::{MergeMode, ParamChange};
+use gojira_protocol::{MergeMode, ParamChange};
 use std::collections::HashSet;
 
 #[derive(Clone, Copy)]
@@ -126,4 +126,3 @@ pub fn apply_replace_active_cleaner(mode: MergeMode, params: Vec<ParamChange>) -
 
     out
 }
-

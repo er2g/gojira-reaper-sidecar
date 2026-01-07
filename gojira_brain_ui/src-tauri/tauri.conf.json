@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "Gojira Brain UI",
+  "version": "0.1.0",
+  "identifier": "com.er2g.gojira-brain-ui",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Gojira Brain",
+        "width": 1100,
+        "height": 760,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

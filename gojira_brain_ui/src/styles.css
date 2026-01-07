@@ -1,0 +1,195 @@
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+  background: #0d0f14;
+  color: #e7eaf0;
+}
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.statusBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #242a36;
+  border-radius: 10px;
+  background: #121522;
+  margin-bottom: 16px;
+}
+
+.statusLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.statusText {
+  font-size: 14px;
+  color: #d6d9e0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid #242a36;
+  background: #121522;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.span2 {
+  grid-column: span 2;
+}
+
+h2 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+h3 {
+  margin: 14px 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+label {
+  width: 140px;
+  font-size: 13px;
+  color: #b8bcc6;
+}
+
+select,
+input,
+textarea {
+  flex: 1;
+  background: #0f1220;
+  border: 1px solid #242a36;
+  color: #e7eaf0;
+  border-radius: 10px;
+  padding: 10px 10px;
+  font-size: 14px;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.btn {
+  background: #1a2030;
+  border: 1px solid #2a3244;
+  color: #e7eaf0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btn.primary {
+  background: #2355ff;
+  border-color: #2355ff;
+}
+
+.btn.danger {
+  background: #2a1620;
+  border-color: #5b2233;
+  color: #ffb3c1;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.muted {
+  font-size: 13px;
+  color: #aab0bd;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+}
+
+.notes {
+  font-size: 14px;
+  line-height: 1.45;
+  color: #dfe3ee;
+  white-space: pre-wrap;
+}
+
+.diffList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diffRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #242a36;
+  border-radius: 10px;
+  background: #0f1220;
+}
+
+.diffLabel {
+  font-size: 13px;
+  color: #cfd4df;
+}
+
+.diffValue {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 13px;
+}
+
+.diffValue.up {
+  color: #7dffb7;
+}
+
+.diffValue.down {
+  color: #ff8ea1;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #1a2030;
+  border: 1px solid #2a3244;
+  color: #cfd4df;
+  font-size: 12px;
+}
+
