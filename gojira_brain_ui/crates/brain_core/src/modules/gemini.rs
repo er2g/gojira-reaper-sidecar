@@ -1187,6 +1187,20 @@ fn parse_tone_response(body: &str, original_prompt: &str) -> Result<ToneResponse
     // If Gemini respects structured output, `text` should be valid JSON.
     let extracted = extract_json_like(&text).unwrap_or(text.as_str());
 
+    if let Ok(path) = std::env::var("DUMP_AI_JSON_PATH") {
+        let path = path.trim();
+        if !path.is_empty() {
+            // Best-effort debugging hook (avoid failing the request if the file
+            // can't be written).
+            let mut dump = extracted.as_bytes();
+            const MAX: usize = 250_000;
+            if dump.len() > MAX {
+                dump = &dump[..MAX];
+            }
+            let _ = std::fs::write(path, dump);
+        }
+    }
+
     let parsed = serde_json::from_str::<AiToneResponse>(extracted)
         .or_else(|_| serde_json::from_str::<AiToneResponse>(body))
         .map_err(|e| format!("{e}: {extracted}"))?;

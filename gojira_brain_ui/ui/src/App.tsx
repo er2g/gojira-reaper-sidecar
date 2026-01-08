@@ -276,6 +276,8 @@ export default function App() {
         current: userText,
         refine: refineActive,
         baseParams: refineActive ? base.workingParams : null,
+        formats: paramFormats,
+        samples: paramFormatSamples,
       });
 
       const res = await invoke<PreviewResult>("generate_tone", {
