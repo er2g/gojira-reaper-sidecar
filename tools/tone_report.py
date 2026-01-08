@@ -217,11 +217,11 @@ def build_prompt_map() -> Dict[str, PromptSpec]:
 
 def amp_name(v: float) -> str:
     if abs(v - 0.0) < 0.2:
-        return "Clean"
+        return "Clean (The Clean)"
     if abs(v - 0.5) < 0.2:
-        return "Rust"
+        return "Rust (The Crunch)"
     if abs(v - 1.0) < 0.2:
-        return "Hot"
+        return "Hot (The Lead)"
     return f"Custom({v:.3f})"
 
 

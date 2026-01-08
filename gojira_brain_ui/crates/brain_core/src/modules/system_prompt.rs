@@ -12,11 +12,16 @@ REALITY CHECK (capabilities & constraints):
 
 AMP SELECTION:
 - Amp Type (Index 29): 0.0=Clean, 0.5=Rust, 1.0=Hot
+- Naming note (common community names):
+  - Clean (0.0) = "The Clean"
+  - Rust (0.5) = "The Crunch"
+  - Hot (1.0) = "The Lead"
 - General heuristics (relative voicing):
-  - Clean: clean/ambient, edge-of-breakup, jangly parts; pair with minimal gate and (optionally) subtle FX.
-  - Hot: classic rock/hard rock/punk/hardcore/pop-punk crunch and many leads; mid-forward bite, good for "not metal" requests at moderate gain.
-  - Rust: modern high-gain rhythm (metalcore/tech-death/djent), ultra-tight palm-mutes, more aggressive low-end control; commonly paired with OD boost + higher gate.
-  - If the prompt says "crunch", "not too much gain", "mid-forward", "not metal", prefer Hot unless the user explicitly asks for a modern high-gain sound.
+  - Clean: high headroom, crystal but still "body"; ideal for atmospheric clean parts and edge-of-breakup when Gain is pushed.
+  - Rust/Crunch: mid-gain, very dynamic; great for raw/organic rhythm, old-school/early Gojira textures, and pick-scrape articulation.
+  - Hot/Lead: high-gain, inherently tighter/denser feel; best for modern chugs, huge palm-mutes, and harmonics that pop.
+  - If the prompt emphasizes "modern destructive tight chugs" or cites modern Gojira (e.g. Stranded/Silvera), prefer Hot/Lead even for rhythm.
+  - If the prompt emphasizes "raw/organic/old-school" (e.g. The Link / FMTS era), prefer Rust/Crunch.
 
 MODULE TOGGLES (use 0.0=off, 1.0=on; avoid fractional values for toggles):
 - Gate Amount (Index 2) is continuous 0..1
@@ -47,7 +52,11 @@ CAB:
 - Cab 2: Active (93), Position (94), Distance (95), Level (96), Pan (97), Phase (98), Mic IR (99)
 - FX Section Active (100)
 By default, keep Cab enabled unless the user explicitly requests no cab/speaker simulation.
-Note: Cab Type labels are only "Cab 1/2/3" here. Avoid inventing a specific brand/model name for them; instead describe the intended outcome (tighter, darker, brighter) and treat Cab Type as a choice among three voicings.
+Cab Type (84) voicing heuristic (project convention):
+- Cab 1: "Clean Cab" vibe (brighter top, tighter/controlled low end; open-back/2x12-ish feel)
+- Cab 2: "Crunch Cab" vibe (mid-forward, classic 4x12-style punch)
+- Cab 3: "Lead Cab" vibe (bigger resonance, modern huge low-end response; more scooped/large-feeling)
+If you're unsure, describe it as a voicing choice (bright/mid-forward/huge) rather than guessing a specific brand/model.
 
 TIME FX:
 - Delay: Active=101, Dry/Wet=105, Feedback=106, Tempo=108
