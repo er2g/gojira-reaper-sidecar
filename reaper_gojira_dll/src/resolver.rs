@@ -1,8 +1,10 @@
 use crate::protocol::{Confidence, GojiraInstance};
 use crate::reaper_api::ReaperApi;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::Path;
 
 pub type FxLookup = HashMap<String, (String, i32)>;
 
@@ -28,39 +30,69 @@ pub fn scan_project_instances(api: &dyn ReaperApi) -> (Vec<GojiraInstance>, FxLo
     let mut instances = Vec::new();
     let mut lookup: FxLookup = HashMap::new();
 
-    let track_count = api.count_tracks();
-    trace_line(&format!("scan: track_count={track_count}"));
-    for ti in 0..track_count {
-        let Some(track) = api.get_track(ti) else { continue };
-        let Some(track_guid) = api.track_guid(track) else { continue };
-        let track_name = api.track_name(track);
+    let mut projects: Vec<(usize, String, bool)> = Vec::new(); // (proj_ptr, path, is_current)
+    let mut seen: HashSet<usize> = HashSet::new();
+    if let Some((p, path)) = api.current_project() {
+        projects.push((p, path, true));
+        seen.insert(p);
+    }
+    for i in 0..256 {
+        let Some((p, path)) = api.enum_project(i) else { break };
+        if seen.insert(p) {
+            projects.push((p, path, false));
+        }
+    }
 
-        let fx_count = api.track_fx_count(track);
+    trace_line(&format!("scan: projects={}", projects.len()));
+    for (proj, proj_path, is_current) in projects {
+        let proj_label = Path::new(&proj_path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_else(|| proj_path.as_str())
+            .to_string();
+
+        let track_count = api.count_tracks_in(proj);
         trace_line(&format!(
-            "scan: track[{ti}] name='{}' guid='{}' fx_count={}",
-            track_name, track_guid, fx_count
+            "scan: project='{}' current={} track_count={}",
+            proj_label, is_current, track_count
         ));
-        for fxi in 0..fx_count {
-            let fx_name = api.track_fx_name(track, fxi);
-            trace_line(&format!("scan: track[{ti}] fx[{fxi}] name='{}'", fx_name));
-            let Some(confidence) = gojira_confidence(&fx_name) else {
-                continue;
+        for ti in 0..track_count {
+            let Some(track) = api.get_track_in(proj, ti) else { continue };
+            let Some(track_guid) = api.track_guid(track) else { continue };
+            let track_name_raw = api.track_name(track);
+            let track_name = if is_current {
+                track_name_raw
+            } else {
+                format!("{} [{proj_label}]", track_name_raw)
             };
-            let Some(fx_guid) = api.track_fx_guid(track, fxi) else { continue };
-            trace_line(&format!(
-                "scan: MATCH track[{ti}] fx[{fxi}] guid='{}' confidence={:?}",
-                fx_guid, confidence
-            ));
 
-            lookup.insert(fx_guid.clone(), (track_guid.clone(), fxi));
-            instances.push(GojiraInstance {
-                track_guid: track_guid.clone(),
-                track_name: track_name.clone(),
-                fx_guid,
-                fx_name,
-                last_known_fx_index: fxi,
-                confidence,
-            });
+            let fx_count = api.track_fx_count(track);
+            trace_line(&format!(
+                "scan: track[{ti}] name='{}' guid='{}' fx_count={}",
+                track_name, track_guid, fx_count
+            ));
+            for fxi in 0..fx_count {
+                let fx_name = api.track_fx_name(track, fxi);
+                trace_line(&format!("scan: track[{ti}] fx[{fxi}] name='{}'", fx_name));
+                let Some(confidence) = gojira_confidence(&fx_name) else {
+                    continue;
+                };
+                let Some(fx_guid) = api.track_fx_guid(track, fxi) else { continue };
+                trace_line(&format!(
+                    "scan: MATCH track[{ti}] fx[{fxi}] guid='{}' confidence={:?}",
+                    fx_guid, confidence
+                ));
+
+                lookup.insert(fx_guid.clone(), (track_guid.clone(), fxi));
+                instances.push(GojiraInstance {
+                    track_guid: track_guid.clone(),
+                    track_name: track_name.clone(),
+                    fx_guid,
+                    fx_name,
+                    last_known_fx_index: fxi,
+                    confidence,
+                });
+            }
         }
     }
 
@@ -96,11 +128,27 @@ pub fn resolve_fx(
 }
 
 pub fn find_track_by_guid(api: &dyn ReaperApi, track_guid: &str) -> Option<usize> {
-    let track_count = api.count_tracks();
-    for ti in 0..track_count {
-        let Some(track) = api.get_track(ti) else { continue };
-        if api.track_guid(track).as_deref() == Some(track_guid) {
-            return Some(track);
+    // Prefer current project first, then other open project tabs.
+    let mut projects: Vec<usize> = Vec::new();
+    let mut seen: HashSet<usize> = HashSet::new();
+    if let Some((p, _)) = api.current_project() {
+        projects.push(p);
+        seen.insert(p);
+    }
+    for i in 0..256 {
+        let Some((p, _)) = api.enum_project(i) else { break };
+        if seen.insert(p) {
+            projects.push(p);
+        }
+    }
+
+    for proj in projects {
+        let track_count = api.count_tracks_in(proj);
+        for ti in 0..track_count {
+            let Some(track) = api.get_track_in(proj, ti) else { continue };
+            if api.track_guid(track).as_deref() == Some(track_guid) {
+                return Some(track);
+            }
         }
     }
     None

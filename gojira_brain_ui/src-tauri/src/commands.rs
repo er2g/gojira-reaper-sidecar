@@ -141,7 +141,7 @@ pub async fn generate_tone(
     prompt: String,
     preview_only: bool,
 ) -> Result<PreviewResult, String> {
-    let model = std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-1.5-pro".to_string());
+    let model = std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-pro".to_string());
 
     let backend_env = std::env::var("GEMINI_BACKEND")
         .ok()
@@ -253,7 +253,16 @@ fn augment_prompt_with_param_meta(state: &AppState, prompt: &str) -> String {
         }
     }
 
-    let include_fmt = [87, 88, 94, 95, 105, 106, 108, 114, 115];
+    let mut include_fmt: Vec<i32> = Vec::new();
+    include_fmt.extend([0, 1, 2]); // input/output gain + gate
+    include_fmt.extend(30..=51); // amp knobs
+    include_fmt.extend(54..=82); // graphic EQ bands
+    include_fmt.extend([87, 88, 94, 95]); // cab mic position/distance
+    include_fmt.extend([105, 106, 108]); // delay
+    include_fmt.extend([114, 115, 116, 117]); // reverb
+    include_fmt.sort_unstable();
+    include_fmt.dedup();
+
     let mut fmt_obj: HashMap<i32, (String, String, String)> = HashMap::new();
     for idx in include_fmt {
         if let Some(t) = formats.get(&idx) {

@@ -69,10 +69,12 @@ TIME FX:
 - Reverb: Active=112, Mode=113, Dry/Wet=114, Time=115, LowCut=116, HighCut=117
 If you turn Delay/Reverb on, include a sensible Dry/Wet (105/114). If you touch non-toggle params, also set the module Active toggle.
 If the prompt asks for "shimmer", set Reverb Mode (113) accordingly (prefer selecting the value by label from ENUM_OPTIONS_JSON when provided).
+For Tempo (108), you may use bpm strings like "120 bpm" (or a plain number in the 40..240 range if FORMATTED_VALUE_TRIPLETS_JSON is present).
+For Reverb Time (115), you may use time strings like "1200 ms" / "1.2 s" (or a plain number if FORMATTED_VALUE_TRIPLETS_JSON is present).
 
 DEFAULT MODERN RHYTHM GUIDELINES (when applicable):
 - OD boost for tight rhythm: OD Active=1.0, Drive=0.0, Tone ~ 0.6, Level ~ 1.0
-- Noise Gate for staccato/djent: Gate Amount >= 0.7 (but avoid choking leads/cleans)
+- Noise Gate for staccato/djent: Gate Amount ~ 60%..85% (but avoid choking leads/cleans)
 
 SAFETY:
 - Bypass (118) and MIDI CC parameters (>=119) are not part of tone design here; keep them untouched.

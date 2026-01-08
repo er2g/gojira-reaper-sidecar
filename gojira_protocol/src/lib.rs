@@ -1,6 +1,28 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+mod int_key_map {
+    use serde::de::Error as _;
+    use serde::{Deserialize, Deserializer};
+    use std::collections::HashMap;
+
+    pub fn deserialize<'de, D, V>(deserializer: D) -> Result<HashMap<i32, V>, D::Error>
+    where
+        D: Deserializer<'de>,
+        V: Deserialize<'de>,
+    {
+        let raw: HashMap<String, V> = HashMap::deserialize(deserializer)?;
+        let mut out: HashMap<i32, V> = HashMap::with_capacity(raw.len());
+        for (k, v) in raw {
+            let idx = k
+                .parse::<i32>()
+                .map_err(|e| D::Error::custom(format!("invalid param index key {k:?}: {e}")))?;
+            out.insert(idx, v);
+        }
+        Ok(out)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ParamEnumOption {
     pub value: f32,
@@ -39,11 +61,11 @@ pub enum ServerMessage {
         session_token: String,
         instances: Vec<GojiraInstance>,
         validation_report: HashMap<String, String>,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "int_key_map::deserialize")]
         param_enums: HashMap<i32, Vec<ParamEnumOption>>,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "int_key_map::deserialize")]
         param_formats: HashMap<i32, ParamFormatTriplet>,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "int_key_map::deserialize")]
         param_format_samples: HashMap<i32, Vec<ParamFormatSample>>,
     },
     ProjectChanged,

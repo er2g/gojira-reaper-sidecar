@@ -7,6 +7,10 @@ pub trait ReaperApi {
     fn project_state_change_count(&self) -> i32;
     fn count_tracks(&self) -> i32;
     fn get_track(&self, index: i32) -> Option<usize>;
+    fn enum_project(&self, index: i32) -> Option<(usize, String)>;
+    fn current_project(&self) -> Option<(usize, String)>;
+    fn count_tracks_in(&self, project: usize) -> i32;
+    fn get_track_in(&self, project: usize, index: i32) -> Option<usize>;
     fn track_guid(&self, track: usize) -> Option<String>;
     fn track_name(&self, track: usize) -> String;
 
@@ -44,6 +48,10 @@ impl ReaperApiImpl {
 
     fn to_track_ptr(track: usize) -> *mut MediaTrack {
         track as *mut MediaTrack
+    }
+
+    fn to_project_ptr(project: usize) -> *mut reaper_low::raw::ReaProject {
+        project as *mut reaper_low::raw::ReaProject
     }
 
     fn c_buf_to_string(buf: &[c_char]) -> String {
@@ -99,6 +107,39 @@ impl ReaperApi for ReaperApiImpl {
 
     fn track_fx_count(&self, track: usize) -> i32 {
         unsafe { self.reaper.TrackFX_GetCount(Self::to_track_ptr(track)) }
+    }
+
+    fn enum_project(&self, index: i32) -> Option<(usize, String)> {
+        let mut buf = [0 as c_char; 1024];
+        let proj = unsafe { self.reaper.EnumProjects(index, buf.as_mut_ptr(), buf.len() as i32) };
+        if proj.is_null() {
+            return None;
+        }
+        let path = Self::c_buf_to_string(&buf);
+        Some((proj as usize, path))
+    }
+
+    fn current_project(&self) -> Option<(usize, String)> {
+        let mut buf = [0 as c_char; 1024];
+        let proj = unsafe { self.reaper.EnumProjects(-1, buf.as_mut_ptr(), buf.len() as i32) };
+        if proj.is_null() {
+            return None;
+        }
+        let path = Self::c_buf_to_string(&buf);
+        Some((proj as usize, path))
+    }
+
+    fn count_tracks_in(&self, project: usize) -> i32 {
+        unsafe { self.reaper.CountTracks(Self::to_project_ptr(project)) }
+    }
+
+    fn get_track_in(&self, project: usize, index: i32) -> Option<usize> {
+        let track = unsafe { self.reaper.GetTrack(Self::to_project_ptr(project), index) };
+        if track.is_null() {
+            None
+        } else {
+            Some(track as usize)
+        }
     }
 
     fn track_fx_num_params(&self, track: usize, fx_index: i32) -> Option<i32> {

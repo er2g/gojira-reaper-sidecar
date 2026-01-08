@@ -103,8 +103,20 @@ pub fn probe_param_meta(
         }
     }
 
-    // Continuous controls where formatted values can reveal units/direction.
-    for idx in [87, 88, 94, 95, 105, 106, 108, 114, 115] {
+    // Continuous controls where formatted values can reveal units/direction/scales.
+    // Keep this reasonably broad so the backend can do robust unit->0..1 conversions
+    // without requiring full sample telemetry.
+    let mut format_indices: Vec<i32> = Vec::new();
+    format_indices.extend([0, 1, 2]); // input/output gain + gate
+    format_indices.extend(30..=51); // amp knobs
+    format_indices.extend(54..=82); // graphic EQ bands
+    format_indices.extend([87, 88, 94, 95]); // cab mic position/distance
+    format_indices.extend([105, 106, 108]); // delay
+    format_indices.extend([114, 115, 116, 117]); // reverb
+    format_indices.sort_unstable();
+    format_indices.dedup();
+
+    for idx in format_indices {
         if api.track_fx_param_name(track, fx_index, idx).is_none() {
             continue;
         }
@@ -113,7 +125,7 @@ pub fn probe_param_meta(
         }
     }
 
-    // Optional: attach a small set of formatted samples (norm->formatted) for unit conversion.
+    // Optional: attach formatted samples (norm->formatted) for unit conversion.
     // Enabled via env var to avoid bloating handshake by default.
     let enable_samples = std::env::var("GOJIRA_SEND_PARAM_SAMPLES")
         .ok()
@@ -121,28 +133,60 @@ pub fn probe_param_meta(
         .unwrap_or(false);
 
     if enable_samples {
-        let steps: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
-        if let Some(n) = api.track_fx_num_params(track, fx_index) {
-            for idx in 0..n {
-                let idx = idx as i32;
-                if api.track_fx_param_name(track, fx_index, idx).is_none() {
+        let steps = std::env::var("GOJIRA_PARAM_SAMPLE_STEPS")
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .unwrap_or(5)
+            .clamp(3, 201);
+
+        let mode = std::env::var("GOJIRA_PARAM_SAMPLE_MODE")
+            .ok()
+            .map(|s| s.trim().to_ascii_lowercase())
+            .unwrap_or_else(|| "tone".to_string());
+
+        let indices: Vec<i32> = if mode == "all" {
+            match api.track_fx_num_params(track, fx_index) {
+                Some(n) => (0..n).map(|i| i as i32).collect(),
+                None => Vec::new(),
+            }
+        } else {
+            // "tone" mode: keep it reasonably small but useful for conversions.
+            let mut v: Vec<i32> = Vec::new();
+            v.push(2); // gate
+            v.push(29); // amp selector
+            v.extend(30..=51); // amp knobs
+            v.extend(54..=82); // EQ bands
+            v.extend([83, 84, 85, 92, 99]); // cab selectors
+            v.extend([101, 105, 106, 108]); // delay
+            v.extend([112, 113, 114, 115, 116, 117]); // reverb
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+
+        let mut norms: Vec<f32> = Vec::with_capacity(steps);
+        for i in 0..steps {
+            norms.push(i as f32 / (steps - 1) as f32);
+        }
+
+        for idx in indices {
+            if api.track_fx_param_name(track, fx_index, idx).is_none() {
+                continue;
+            }
+            let mut v: Vec<ParamFormatSample> = Vec::new();
+            for &norm in &norms {
+                let formatted = api
+                    .track_fx_format_param_value(track, fx_index, idx, norm)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                if formatted.is_empty() {
                     continue;
                 }
-                let mut v: Vec<ParamFormatSample> = Vec::new();
-                for &norm in &steps {
-                    let formatted = api
-                        .track_fx_format_param_value(track, fx_index, idx, norm)
-                        .unwrap_or_default()
-                        .trim()
-                        .to_string();
-                    if formatted.is_empty() {
-                        continue;
-                    }
-                    v.push(ParamFormatSample { norm, formatted });
-                }
-                if !v.is_empty() {
-                    samples.insert(idx, v);
-                }
+                v.push(ParamFormatSample { norm, formatted });
+            }
+            if !v.is_empty() {
+                samples.insert(idx, v);
             }
         }
     }

@@ -153,6 +153,25 @@ fn default_enum_options() -> std::collections::HashMap<i32, Vec<EnumOption>> {
     out
 }
 
+fn default_formatted_value_triplets() -> std::collections::HashMap<i32, (String, String, String)> {
+    use std::collections::HashMap;
+    let mut out: HashMap<i32, (String, String, String)> = HashMap::new();
+
+    // These have been observed via TrackFX_FormatParamValue on a recent Archetype Gojira build.
+    // They are used as a fallback when FORMATTED_VALUE_TRIPLETS_JSON isn't present.
+    out.insert(0, ("-24.0".to_string(), "0.0".to_string(), "24.0".to_string())); // Input Gain
+    out.insert(1, ("-24.0".to_string(), "0.0".to_string(), "24.0".to_string())); // Output Gain
+    out.insert(2, ("-96.0".to_string(), "-48.0".to_string(), "0.0".to_string())); // Gate Amount
+
+    // Tempo/time (no explicit unit in formatted strings, but these map linearly in practice).
+    out.insert(108, ("40.0".to_string(), "140.0".to_string(), "240.0".to_string())); // DLY Tempo (bpm)
+    out.insert(115, ("250.00".to_string(), "5125.00".to_string(), "10000.00".to_string())); // REV Time (ms)
+    out.insert(116, ("50".to_string(), "375".to_string(), "700".to_string())); // REV Low Cut (Hz)
+    out.insert(117, ("1000".to_string(), "5500".to_string(), "10000".to_string())); // REV High Cut (Hz)
+
+    out
+}
+
 fn parse_format_samples(
     prompt: &str,
 ) -> Option<std::collections::HashMap<i32, Vec<(f32, String)>>> {
@@ -202,7 +221,7 @@ fn parse_percent(s: &str) -> Option<f32> {
 
 fn parse_db(s: &str) -> Option<f32> {
     // Accept "+3.2 dB", "-10db", "3db"
-    let t = s.trim().to_ascii_lowercase();
+    let t = s.trim().to_ascii_lowercase().replace(',', ".");
     let t = t.replace("db", "").trim().to_string();
     t.parse::<f32>().ok()
 }
@@ -296,6 +315,26 @@ fn parse_ms_from_formatted(s: &str) -> Option<f32> {
     }
 }
 
+fn parse_bpm_value(s: &str) -> Option<f32> {
+    let t = s.trim().to_ascii_lowercase().replace(',', ".");
+    if !t.contains("bpm") {
+        return None;
+    }
+    // Pull first float-like token.
+    let cleaned: String = t
+        .chars()
+        .map(|c| {
+            if c.is_ascii_digit() || c == '.' || c == '-' || c == '+' || c == ' ' {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    let first = cleaned.split_whitespace().next()?;
+    first.parse::<f32>().ok()
+}
+
 fn resolve_amp_type(value: &serde_json::Value) -> Option<f32> {
     let s = value.as_str()?.trim();
     let s = normalize_ws(s);
@@ -357,22 +396,132 @@ fn resolve_eq_band_db(index: i32, s: &str) -> Option<f32> {
     Some(((db - min_db) / (max_db - min_db)).clamp(0.0, 1.0))
 }
 
+fn parse_formatted_value_triplets(
+    prompt: &str,
+) -> Option<std::collections::HashMap<i32, (String, String, String)>> {
+    let raw = extract_prompt_json_line(prompt, "FORMATTED_VALUE_TRIPLETS_JSON=")?;
+    let parsed: std::collections::HashMap<String, (String, String, String)> =
+        serde_json::from_str(raw).ok()?;
+
+    let mut out: std::collections::HashMap<i32, (String, String, String)> =
+        std::collections::HashMap::new();
+    for (k, v) in parsed {
+        if let Ok(idx) = k.parse::<i32>() {
+            out.insert(idx, v);
+        }
+    }
+    Some(out)
+}
+
+fn parse_first_float(s: &str) -> Option<f32> {
+    let t = s.trim().to_ascii_lowercase().replace(',', ".");
+    let cleaned: String = t
+        .chars()
+        .map(|c| {
+            if c.is_ascii_digit() || c == '.' || c == '-' || c == '+' || c == ' ' {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    for tok in cleaned.split_whitespace() {
+        if let Ok(v) = tok.parse::<f32>() {
+            return Some(v);
+        }
+    }
+    None
+}
+
+fn invert_from_triplet_physical(
+    triplets: &std::collections::HashMap<i32, (String, String, String)>,
+    index: i32,
+    physical: f32,
+) -> Option<f32> {
+    let (min_s, _mid_s, max_s) = triplets.get(&index)?.clone();
+    let min = parse_first_float(&min_s)?;
+    let max = parse_first_float(&max_s)?;
+    if (max - min).abs() < 1e-6 {
+        return None;
+    }
+
+    // Only apply if the triplet clearly represents a physical range (not just "0..1").
+    if max <= 1.5 && min >= -0.5 {
+        return None;
+    }
+
+    Some(((physical - min) / (max - min)).clamp(0.0, 1.0))
+}
+
+fn invert_from_samples_physical(
+    samples: &std::collections::HashMap<i32, Vec<(f32, String)>>,
+    index: i32,
+    physical: f32,
+) -> Option<f32> {
+    let raw = samples.get(&index)?;
+    if raw.is_empty() {
+        return None;
+    }
+
+    // Pick a physical parser based on sample formatted strings.
+    let mut has_db = false;
+    let mut has_ms = false;
+    for (_norm, formatted) in raw {
+        let f = formatted.to_ascii_lowercase();
+        if f.contains("db") {
+            has_db = true;
+        }
+        if f.contains("ms") || f.trim_end().ends_with('s') {
+            has_ms = true;
+        }
+    }
+
+    let mut pts: Vec<(f32, f32)> = Vec::new(); // (physical, norm)
+    for (norm, formatted) in raw {
+        let p = if has_db {
+            parse_db_from_formatted(formatted)
+        } else if has_ms {
+            parse_ms_from_formatted(formatted)
+        } else {
+            parse_first_float(formatted)
+        }?;
+        pts.push((p, *norm));
+    }
+
+    invert_piecewise(&pts, physical)
+}
+
 fn resolve_value_for_index(
     prompt: &str,
     enums: Option<&std::collections::HashMap<i32, Vec<EnumOption>>>,
     samples: Option<&std::collections::HashMap<i32, Vec<(f32, String)>>>,
+    triplets: Option<&std::collections::HashMap<i32, (String, String, String)>>,
     index: i32,
     value: &serde_json::Value,
 ) -> Result<f32, ResolveError> {
-    // Numbers still work (and numeric strings).
+    // Numbers still work when they are truly normalized 0..1.
     if let Some(v) = parse_numeric_value(value) {
-        if v > 1.0 {
-            // Allow 0..100 for percent-like values.
-            if v <= 100.0 {
-                return Ok((v / 100.0).clamp(0.0, 1.0));
+        if (0.0..=1.0).contains(&v) {
+            return Ok(v);
+        }
+
+        // For non-normalized numeric values, only accept them if we can invert a known physical
+        // mapping (samples or formatted triplets). This prevents nonsense like "650" from being
+        // silently clamped to 1.0.
+        if let Some(samples) = samples {
+            if let Some(norm) = invert_from_samples_physical(samples, index, v) {
+                return Ok(norm);
             }
         }
-        return Ok(v.clamp(0.0, 1.0));
+        if let Some(triplets) = triplets {
+            if let Some(norm) = invert_from_triplet_physical(triplets, index, v) {
+                return Ok(norm);
+            }
+        }
+
+        return Err(ResolveError(format!(
+            "numeric value {v} for idx {index} is not a normalized 0..1 value, and no calibration mapping was available (try \"%\", \"dB\", \"ms\", \"bpm\", or enable PARAM_FORMAT_SAMPLES_JSON)"
+        )));
     }
 
     let Some(s) = value.as_str() else {
@@ -431,6 +580,11 @@ fn resolve_value_for_index(
             if let Some(v) = resolve_eq_band_db(index, s_trim) {
                 return Ok(v);
             }
+            if let Some(triplets) = triplets {
+                if let Some(norm) = invert_from_triplet_physical(triplets, index, db) {
+                    return Ok(norm);
+                }
+            }
         }
     }
 
@@ -447,8 +601,30 @@ fn resolve_value_for_index(
                 return Ok(norm);
             }
         }
+        if let Some(triplets) = triplets {
+            if let Some(norm) = invert_from_triplet_physical(triplets, index, ms) {
+                return Ok(norm);
+            }
+        }
         return Err(ResolveError(format!(
             "time unit provided for idx {index} but no matching PARAM_FORMAT_SAMPLES_JSON mapping was found"
+        )));
+    }
+
+    // Tempo units (bpm).
+    if let Some(bpm) = parse_bpm_value(s_trim) {
+        if let Some(samples) = samples {
+            if let Some(norm) = invert_from_samples_physical(samples, index, bpm) {
+                return Ok(norm);
+            }
+        }
+        if let Some(triplets) = triplets {
+            if let Some(norm) = invert_from_triplet_physical(triplets, index, bpm) {
+                return Ok(norm);
+            }
+        }
+        return Err(ResolveError(format!(
+            "bpm unit provided for idx {index} but no calibration mapping was available"
         )));
     }
 
@@ -480,12 +656,23 @@ pub fn resolve_ai_params(
     };
     let samples = parse_format_samples(original_prompt);
 
+    let triplets = {
+        let mut t = default_formatted_value_triplets();
+        if let Some(from_prompt) = parse_formatted_value_triplets(original_prompt) {
+            for (k, v) in from_prompt {
+                t.insert(k, v);
+            }
+        }
+        Some(t)
+    };
+
     let mut out: Vec<ParamChange> = Vec::with_capacity(ai_params.len());
     for p in ai_params {
         let v = resolve_value_for_index(
             original_prompt,
             enums.as_ref(),
             samples.as_ref(),
+            triplets.as_ref(),
             p.index,
             &p.value,
         )?;
@@ -495,4 +682,46 @@ pub fn resolve_ai_params(
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gate_db_uses_default_triplet() {
+        let params = vec![AiParamChange {
+            index: 2,
+            value: serde_json::Value::String("-30 dB".to_string()),
+        }];
+        let out = resolve_ai_params("hi", params).unwrap();
+        let v = out[0].value;
+        // (-30 - -96) / (0 - -96) = 66/96 = 0.6875
+        assert!((v - 0.6875).abs() < 1e-4, "got {v}");
+    }
+
+    #[test]
+    fn tempo_bpm_uses_default_triplet() {
+        let params = vec![AiParamChange {
+            index: 108,
+            value: serde_json::Value::String("120 bpm".to_string()),
+        }];
+        let out = resolve_ai_params("hi", params).unwrap();
+        let v = out[0].value;
+        // (120-40)/(240-40)=0.4
+        assert!((v - 0.4).abs() < 1e-4, "got {v}");
+    }
+
+    #[test]
+    fn numeric_physical_requires_mapping() {
+        let params = vec![AiParamChange {
+            index: 54,
+            value: serde_json::Value::Number(650.into()),
+        }];
+        let err = resolve_ai_params("hi", params).unwrap_err();
+        assert!(
+            err.0.contains("not a normalized 0..1"),
+            "unexpected err: {err}"
+        );
+    }
 }

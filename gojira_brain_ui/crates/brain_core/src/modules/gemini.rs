@@ -59,7 +59,7 @@ enum TonePipeline {
     TwoStage,
 }
 
-pub fn decide_backend(model: &str, api_key_present: bool) -> GeminiBackend {
+pub fn decide_backend(_model: &str, api_key_present: bool) -> GeminiBackend {
     let env = std::env::var("GEMINI_BACKEND")
         .ok()
         .map(|s| s.trim().to_ascii_lowercase());
@@ -78,31 +78,20 @@ pub fn decide_backend(model: &str, api_key_present: bool) -> GeminiBackend {
         }
     }
 
-    // Heuristic: Gemini 2.x (esp 2.5) commonly requires Vertex OAuth2.
-    if model.contains("2.5") || model.starts_with("gemini-2") {
-        let has_vertex_project = std::env::var("VERTEX_PROJECT")
-            .or_else(|_| std::env::var("GOOGLE_CLOUD_PROJECT"))
-            .or_else(|_| std::env::var("GCLOUD_PROJECT"))
-            .is_ok();
-        return if has_vertex_project {
-            GeminiBackend::VertexAi
-        } else {
-            GeminiBackend::GoogleAiOauth
-        };
+    // Auto mode: if an API key is available, prefer AI Studio API-key auth regardless of model.
+    // (Some environments expose Gemini 2.x models via AI Studio; users can override via GEMINI_BACKEND.)
+    if api_key_present {
+        return GeminiBackend::AiStudioApiKey;
     }
 
-    if api_key_present {
-        GeminiBackend::AiStudioApiKey
+    let has_vertex_project = std::env::var("VERTEX_PROJECT")
+        .or_else(|_| std::env::var("GOOGLE_CLOUD_PROJECT"))
+        .or_else(|_| std::env::var("GCLOUD_PROJECT"))
+        .is_ok();
+    if has_vertex_project {
+        GeminiBackend::VertexAi
     } else {
-        let has_vertex_project = std::env::var("VERTEX_PROJECT")
-            .or_else(|_| std::env::var("GOOGLE_CLOUD_PROJECT"))
-            .or_else(|_| std::env::var("GCLOUD_PROJECT"))
-            .is_ok();
-        if has_vertex_project {
-            GeminiBackend::VertexAi
-        } else {
-            GeminiBackend::GoogleAiOauth
-        }
+        GeminiBackend::GoogleAiOauth
     }
 }
 

@@ -1,6 +1,7 @@
 use brain_core::cleaner::{apply_replace_active_cleaner, sanitize_params};
 use brain_core::gemini::{generate_tone_auto, ToneRequest};
 use brain_core::protocol::{ClientCommand, MergeMode, ServerMessage};
+use brain_core::modules::value_resolver::{resolve_ai_params, AiToneResponse};
 use brain_core::{param_map, protocol::ParamChange};
 use clap::Parser;
 use std::collections::BTreeMap;
@@ -12,12 +13,17 @@ use tungstenite::{connect, Message, WebSocket};
 #[derive(Parser, Debug)]
 #[command(name = "brain_cli")]
 struct Args {
-    #[arg(long, required_unless_present = "prompt_file")]
+    #[arg(long)]
     prompt: Option<String>,
 
     /// Read prompt content from a file (useful for long prompts / JSON blocks).
     #[arg(long, value_name = "PATH", conflicts_with = "prompt")]
     prompt_file: Option<PathBuf>,
+
+    /// Use a local AI JSON response (bypasses Gemini) and only run resolver + QC + optional apply.
+    /// File format: { "reasoning": "...", "params": [ { "index": 2, "value": "-30 dB" }, ... ] }
+    #[arg(long, value_name = "PATH")]
+    ai_response_file: Option<PathBuf>,
 
     #[arg(long)]
     target_guid: Option<String>,
@@ -25,7 +31,7 @@ struct Args {
     #[arg(long, default_value = "auto")]
     backend: String,
 
-    #[arg(long, default_value = "gemini-1.5-pro")]
+    #[arg(long, default_value = "gemini-2.5-pro")]
     gemini_model: String,
 
     #[arg(long, default_value = "ws://127.0.0.1:9001")]
@@ -55,14 +61,17 @@ async fn main() -> anyhow::Result<()> {
 
     let prompt = if let Some(p) = args.prompt.clone() {
         p
-    } else {
-        let path = args
-            .prompt_file
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("missing --prompt or --prompt-file"))?;
+    } else if let Some(path) = args.prompt_file.clone() {
         std::fs::read_to_string(&path)
             .map_err(|e| anyhow::anyhow!("failed to read prompt file {}: {e}", path.display()))?
+    } else {
+        String::new()
     };
+    if args.ai_response_file.is_none() && prompt.trim().is_empty() {
+        return Err(anyhow::anyhow!(
+            "missing input: provide --prompt/--prompt-file, or use --ai-response-file"
+        ));
+    }
 
     std::env::set_var("GEMINI_BACKEND", args.backend.trim());
     if let Some(p) = args.vertex_project.as_deref() {
@@ -107,14 +116,28 @@ async fn main() -> anyhow::Result<()> {
         (Some(ws), session_token, Some(target))
     };
 
-    let tone = generate_tone_auto(
-        &args.gemini_model,
-        ToneRequest {
-            user_prompt: prompt,
-        },
-        api_key.as_deref(),
-    )
-    .await?;
+    let tone = if let Some(path) = args.ai_response_file.as_ref() {
+        let raw = std::fs::read_to_string(path).map_err(|e| {
+            anyhow::anyhow!("failed to read --ai-response-file {}: {e}", path.display())
+        })?;
+        let ai: AiToneResponse =
+            serde_json::from_str(&raw).map_err(|e| anyhow::anyhow!("AI JSON parse failed: {e}"))?;
+        let params = resolve_ai_params(&prompt, ai.params)
+            .map_err(|e| anyhow::anyhow!("resolve_ai_params failed: {e}"))?;
+        brain_core::gemini::ToneResponse {
+            reasoning: ai.reasoning,
+            params,
+        }
+    } else {
+        generate_tone_auto(
+            &args.gemini_model,
+            ToneRequest {
+                user_prompt: prompt,
+            },
+            api_key.as_deref(),
+        )
+        .await?
+    };
 
     eprintln!("\nreasoning:\n{}\n", tone.reasoning);
 
