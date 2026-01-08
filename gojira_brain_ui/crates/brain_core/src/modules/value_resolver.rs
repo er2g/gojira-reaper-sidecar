@@ -270,6 +270,32 @@ fn parse_ms_or_s(s: &str) -> Option<(f32, &'static str)> {
     None
 }
 
+fn parse_ms_value(s: &str) -> Option<f32> {
+    let (n, unit) = parse_ms_or_s(s)?;
+    Some(if unit == "s" { n * 1000.0 } else { n })
+}
+
+fn parse_ms_from_formatted(s: &str) -> Option<f32> {
+    let t = s.trim().to_ascii_lowercase().replace(',', ".");
+    if !(t.contains("ms") || t.ends_with('s')) {
+        return None;
+    }
+    // Pull first float-like token.
+    let cleaned: String = t
+        .chars()
+        .map(|c| if c.is_ascii_digit() || c == '.' || c == '-' || c == '+' || c == ' ' { c } else { ' ' })
+        .collect();
+    let first = cleaned.split_whitespace().next()?;
+    let v = first.parse::<f32>().ok()?;
+    if t.contains("ms") {
+        Some(v)
+    } else if t.ends_with('s') {
+        Some(v * 1000.0)
+    } else {
+        None
+    }
+}
+
 fn resolve_amp_type(value: &serde_json::Value) -> Option<f32> {
     let s = value.as_str()?.trim();
     let s = normalize_ws(s);
@@ -409,9 +435,20 @@ fn resolve_value_for_index(
     }
 
     // Time units (ms/s) - without calibration we can't map reliably, so accept normalized fallback.
-    if let Some((_n, _u)) = parse_ms_or_s(s_trim) {
+    if let Some(ms) = parse_ms_value(s_trim) {
+        if let Some(samples) = samples.and_then(|m| m.get(&index)) {
+            let mut pts: Vec<(f32, f32)> = Vec::new(); // (ms, norm)
+            for (norm, formatted) in samples {
+                if let Some(v) = parse_ms_from_formatted(formatted) {
+                    pts.push((v, *norm));
+                }
+            }
+            if let Some(norm) = invert_piecewise(&pts, ms) {
+                return Ok(norm);
+            }
+        }
         return Err(ResolveError(format!(
-            "time unit provided for idx {index} but no calibration is available; use 0..1 for now"
+            "time unit provided for idx {index} but no matching PARAM_FORMAT_SAMPLES_JSON mapping was found"
         )));
     }
 
