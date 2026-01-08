@@ -153,6 +153,75 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     out
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct EnumOption {
+    value: f32,
+    label: String,
+}
+
+fn extract_prompt_json_line<'a>(prompt: &'a str, key: &str) -> Option<&'a str> {
+    for line in prompt.lines() {
+        let t = line.trim();
+        if let Some(v) = t.strip_prefix(key) {
+            let v = v.trim();
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+fn extract_enum_options(prompt: &str) -> Option<std::collections::HashMap<i32, Vec<EnumOption>>> {
+    let raw = extract_prompt_json_line(prompt, "ENUM_OPTIONS_JSON=")?;
+    let parsed: std::collections::HashMap<String, Vec<EnumOption>> =
+        serde_json::from_str(raw).ok()?;
+
+    let mut out: std::collections::HashMap<i32, Vec<EnumOption>> = std::collections::HashMap::new();
+    for (k, v) in parsed {
+        if let Ok(idx) = k.parse::<i32>() {
+            out.insert(idx, v);
+        }
+    }
+    Some(out)
+}
+
+fn upsert_param(params: &mut Vec<ParamChange>, index: i32, value: f32) {
+    if let Some(p) = params.iter_mut().find(|p| p.index == index) {
+        p.value = value;
+        return;
+    }
+    params.push(ParamChange { index, value });
+}
+
+fn get_param(params: &[ParamChange], index: i32) -> Option<f32> {
+    params.iter().find(|p| p.index == index).map(|p| p.value)
+}
+
+fn apply_prompt_autofixes(prompt: &str, params: &mut Vec<ParamChange>) {
+    let plow = prompt.to_ascii_lowercase();
+    let enums = match extract_enum_options(prompt) {
+        Some(e) => e,
+        None => return,
+    };
+
+    // If the user asked for shimmer and reverb is on, ensure we set REV Mode (113) to Shimmer.
+    // (The model sometimes forgets to set 113 even when using reverb.)
+    if plow.contains("shimmer") {
+        let reverb_on = get_param(params, 112).unwrap_or(0.0) >= 0.5;
+        if reverb_on {
+            if let Some(opts) = enums.get(&113) {
+                if let Some(sh) = opts
+                    .iter()
+                    .find(|o| o.label.trim().eq_ignore_ascii_case("shimmer"))
+                {
+                    upsert_param(params, 113, sh.value);
+                }
+            }
+        }
+    }
+}
+
 fn derive_plan(params: &[ParamChange]) -> String {
     use std::collections::BTreeMap;
 
@@ -422,6 +491,8 @@ pub async fn generate_tone_auto(
             generate_tone_single_stage(model, ToneRequest { user_prompt: combined_prompt }, api_key)
                 .await?;
 
+        apply_prompt_autofixes(&req.user_prompt, &mut out.params);
+
         // Build a plan off the same post-processing the UI/CLI will apply.
         let sanitized = sanitize_params(out.params.clone()).map_err(GeminiError::Parse)?;
         let cleaned_for_plan = apply_replace_active_cleaner(MergeMode::ReplaceActive, sanitized);
@@ -439,7 +510,9 @@ pub async fn generate_tone_auto(
         return Ok(out);
     }
 
-    generate_tone_single_stage(model, req, api_key).await
+    let mut out = generate_tone_single_stage(model, req.clone(), api_key).await?;
+    apply_prompt_autofixes(&req.user_prompt, &mut out.params);
+    Ok(out)
 }
 
 async fn generate_tone_single_stage(
