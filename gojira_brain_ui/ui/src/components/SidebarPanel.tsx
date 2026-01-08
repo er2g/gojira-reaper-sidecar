@@ -1,6 +1,6 @@
 import React from "react";
-import type { GojiraInstance } from "../types";
-import type { SavedSnapshot } from "../workspace";
+import type { GojiraInstance } from "../types";       
+import type { PickupPosition, SavedSnapshot } from "../workspace";    
 import { formatTime } from "../workspace";
 
 export default function SidebarPanel(props: {
@@ -33,6 +33,15 @@ export default function SidebarPanel(props: {
   onUnlockVault: () => void;
   onSaveKey: () => void;
   onClearKey: () => void;
+
+  pickupNeck: string;
+  setPickupNeck: (v: string) => void;
+  pickupMiddle: string;
+  setPickupMiddle: (v: string) => void;
+  pickupBridge: string;
+  setPickupBridge: (v: string) => void;
+  pickupActive: PickupPosition | null;
+  setPickupActive: (v: PickupPosition | null) => void;
 
   snapshots: SavedSnapshot[];
   onRestoreSnapshot: (s: SavedSnapshot) => void;
@@ -155,6 +164,56 @@ export default function SidebarPanel(props: {
           </div>
         </details>
 
+        <details style={{ marginTop: 10 }}>
+          <summary className="muted" style={{ cursor: "pointer" }}>
+            Guitar / pickups
+          </summary>
+          <div style={{ marginTop: 10 }}>
+            <div className="row">
+              <label>Active pickup</label>
+              <select
+                value={props.pickupActive ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value as PickupPosition | "";
+                  props.setPickupActive(v ? (v as PickupPosition) : null);
+                }}
+              >
+                <option value="">(unspecified)</option>
+                <option value="bridge">Bridge</option>
+                <option value="middle">Middle</option>
+                <option value="neck">Neck</option>
+              </select>
+            </div>
+            <div className="row">
+              <label>Bridge</label>
+              <input
+                value={props.pickupBridge}
+                onChange={(e) => props.setPickupBridge(e.target.value)}
+                placeholder="e.g. Seymour Duncan SH-4 JB (humbucker)"
+              />
+            </div>
+            <div className="row">
+              <label>Middle</label>
+              <input
+                value={props.pickupMiddle}
+                onChange={(e) => props.setPickupMiddle(e.target.value)}
+                placeholder="e.g. Single coil (stock)"
+              />
+            </div>
+            <div className="row">
+              <label>Neck</label>
+              <input
+                value={props.pickupNeck}
+                onChange={(e) => props.setPickupNeck(e.target.value)}
+                placeholder="e.g. EMG 60 (humbucker)"
+              />
+            </div>
+            <div className="muted">
+              Used as tone context only (not a plugin parameter).
+            </div>
+          </div>
+        </details>
+
         {props.snapshots.length ? (
           <>
             <div className="divider" />
@@ -184,4 +243,3 @@ export default function SidebarPanel(props: {
     </aside>
   );
 }
-

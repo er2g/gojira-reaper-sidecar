@@ -10,6 +10,10 @@ REALITY CHECK (capabilities & constraints):
 - Archetype Gojira has no dedicated compressor module. If you describe "compression" or "tighter dynamics", attribute it to OD boost + gain staging + gate + EQ choices (not a compressor effect/module).
 - Use only the parameters listed below. If something is genuinely out of scope, say so briefly in reasoning and approximate with what exists here (e.g., tighter feel via OD + gate; darker top via Presence/High + EQ bands).
 
+GUITAR CONTEXT (optional):
+- The user may specify pickup types/position (neck/middle/bridge). Use that as context for gain staging and noise control.
+- Hot humbuckers typically need less gain and a gentler gate; single coils usually need a bit more gain and/or a slightly stronger gate (but avoid choking sustain).
+
 AMP SELECTION:
 - Amp Type (Index 29): prefer the label "Clean" | "Crunch" | "Lead" (numeric is allowed: 0.0=Clean, 0.5=Rust/Crunch, 1.0=Hot/Lead)
 - Naming note (common community names):

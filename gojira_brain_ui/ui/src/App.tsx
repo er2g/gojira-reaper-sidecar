@@ -7,7 +7,7 @@ import InspectorPanel from "./components/InspectorPanel";
 import SidebarPanel from "./components/SidebarPanel";
 import StatusBar from "./components/StatusBar";
 import type { AckMessage, GojiraInstance, HandshakePayload, PreviewResult, StatusEvent } from "./types";
-import { buildPromptFromChat, initialWorkspace, mergeParamLists, nowId, type ChatMessage, type HistoryEntry, type SavedSnapshot, type WorkspaceState } from "./workspace";
+import { buildPromptFromChat, initialWorkspace, mergeParamLists, nowId, type ChatMessage, type HistoryEntry, type PickupPosition, type SavedSnapshot, type WorkspaceState } from "./workspace";
 import { summarizeAppliedDelta } from "./workspace";
 
 const store = new Store("prefs.bin");
@@ -22,11 +22,16 @@ export default function App() {
   const [paramFormatSamples, setParamFormatSamples] = useState<
     Record<string, Array<{ norm: number; formatted: string }>>
   >({});
-  const [indexRemap, setIndexRemap] = useState<Record<number, number>>({});  
+  const [indexRemap, setIndexRemap] = useState<Record<number, number>>({});     
+
+  const [pickupNeck, setPickupNeck] = useState("");
+  const [pickupMiddle, setPickupMiddle] = useState("");
+  const [pickupBridge, setPickupBridge] = useState("");
+  const [pickupActive, setPickupActive] = useState<PickupPosition | null>(null);
 
   const [vaultPassphrase, setVaultPassphrase] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [apiKeyPresent, setApiKeyPresent] = useState<boolean | null>(null);
+  const [apiKeyPresent, setApiKeyPresent] = useState<boolean | null>(null);     
 
   const [busy, setBusy] = useState(false);
   const [previewOnly, setPreviewOnly] = useState(true);
@@ -175,6 +180,19 @@ export default function App() {
 
       await invoke("connect_ws");
 
+      const pNeck = (await store.get<string>("pickup_neck_v1")) ?? "";
+      const pMiddle = (await store.get<string>("pickup_middle_v1")) ?? "";
+      const pBridge = (await store.get<string>("pickup_bridge_v1")) ?? "";
+      const pActive = ((await store.get<string>("pickup_active_v1")) ?? "").trim();
+      setPickupNeck(pNeck);
+      setPickupMiddle(pMiddle);
+      setPickupBridge(pBridge);
+      if (pActive === "neck" || pActive === "middle" || pActive === "bridge") {
+        setPickupActive(pActive as PickupPosition);
+      } else {
+        setPickupActive(null);
+      }
+
       const saved = (await store.get<Record<string, number>>("index_remap_v1")) ?? {};
       const normalized: Record<number, number> = {};
       for (const [k, v] of Object.entries(saved)) {
@@ -218,8 +236,26 @@ export default function App() {
     })();
   }, [selectedFxGuid]);
 
+  const pickupSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (pickupSaveTimer.current) clearTimeout(pickupSaveTimer.current);
+    pickupSaveTimer.current = setTimeout(() => {
+      void (async () => {
+        await store.set("pickup_neck_v1", pickupNeck);
+        await store.set("pickup_middle_v1", pickupMiddle);
+        await store.set("pickup_bridge_v1", pickupBridge);
+        await store.set("pickup_active_v1", pickupActive ?? "");
+        await store.save();
+      })();
+    }, 250);
+
+    return () => {
+      if (pickupSaveTimer.current) clearTimeout(pickupSaveTimer.current);
+    };
+  }, [pickupNeck, pickupMiddle, pickupBridge, pickupActive]);
+
   async function unlockVault() {
-    await invoke("set_vault_passphrase", { passphrase: vaultPassphrase });
+    await invoke("set_vault_passphrase", { passphrase: vaultPassphrase });  
     try {
       const ok = await invoke<boolean>("has_api_key");
       setApiKeyPresent(ok);
@@ -278,6 +314,12 @@ export default function App() {
         baseParams: refineActive ? base.workingParams : null,
         formats: paramFormats,
         samples: paramFormatSamples,
+        pickups: {
+          neck: pickupNeck,
+          middle: pickupMiddle,
+          bridge: pickupBridge,
+          active: pickupActive,
+        },
       });
 
       const res = await invoke<PreviewResult>("generate_tone", {
@@ -375,6 +417,14 @@ export default function App() {
           onUnlockVault={unlockVault}
           onSaveKey={saveKey}
           onClearKey={clearKey}
+          pickupNeck={pickupNeck}
+          setPickupNeck={setPickupNeck}
+          pickupMiddle={pickupMiddle}
+          setPickupMiddle={setPickupMiddle}
+          pickupBridge={pickupBridge}
+          setPickupBridge={setPickupBridge}
+          pickupActive={pickupActive}
+          setPickupActive={setPickupActive}
           snapshots={snapshots}
           onRestoreSnapshot={restoreSnapshot}
         />

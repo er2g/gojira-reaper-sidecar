@@ -31,8 +31,10 @@ export type SavedSnapshot = {
   state: WorkspaceState;
 };
 
+export type PickupPosition = "neck" | "middle" | "bridge";
+
 export function nowId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;      
 }
 
 export function formatTime(ts: number) {
@@ -141,8 +143,14 @@ export function buildPromptFromChat(args: {
   baseParams: ParamChange[] | null;
   formats?: ParamFormats;
   samples?: ParamFormatSamples;
+  pickups?: {
+    neck?: string;
+    middle?: string;
+    bridge?: string;
+    active?: PickupPosition | null;
+  };
 }) {
-  const recent = args.messages.filter((m) => m.content.trim()).slice(-8);
+  const recent = args.messages.filter((m) => m.content.trim()).slice(-8);       
   const lines: string[] = [];
 
   lines.push("CONVERSATION CONTEXT (for tone continuity):");
@@ -151,6 +159,20 @@ export function buildPromptFromChat(args: {
     lines.push(`${head}: ${m.content.trim()}`);
   }
   lines.push("");
+
+  const p = args.pickups;
+  const neck = p?.neck?.trim() ?? "";
+  const middle = p?.middle?.trim() ?? "";
+  const bridge = p?.bridge?.trim() ?? "";
+  const anyPickup = !!(neck || middle || bridge || p?.active);
+  if (anyPickup) {
+    lines.push("GUITAR / PICKUPS CONTEXT:");
+    if (p?.active) lines.push(`Active pickup position: ${p.active}`);
+    if (neck) lines.push(`Neck pickup: ${neck}`);
+    if (middle) lines.push(`Middle pickup: ${middle}`);
+    if (bridge) lines.push(`Bridge pickup: ${bridge}`);
+    lines.push("");
+  }
 
   if (args.refine && args.baseParams?.length) {
     lines.push("CURRENT PRESET (baseline for iterative editing):");
