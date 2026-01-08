@@ -61,6 +61,98 @@ fn parse_enum_options(
     Some(out)
 }
 
+fn default_enum_options() -> std::collections::HashMap<i32, Vec<EnumOption>> {
+    use std::collections::HashMap;
+    let mut out: HashMap<i32, Vec<EnumOption>> = HashMap::new();
+
+    // These values have been observed in the current Gojira build via TrackFX_FormatParamValue
+    // sampling (and are stable across many plugin builds). If ENUM_OPTIONS_JSON is present, it
+    // takes precedence.
+    out.insert(
+        param_map::cab::TYPE_SELECTOR,
+        vec![
+            EnumOption {
+                value: 0.125_976_56,
+                label: "Cab 1".to_string(),
+            },
+            EnumOption {
+                value: 0.500_976_56,
+                label: "Cab 2".to_string(),
+            },
+            EnumOption {
+                value: 0.875,
+                label: "Cab 3".to_string(),
+            },
+        ],
+    );
+
+    let mic = vec![
+        EnumOption {
+            value: 0.041_748_047,
+            label: "Dynamic 57".to_string(),
+        },
+        EnumOption {
+            value: 0.166_748_05,
+            label: "Dynamic 421".to_string(),
+        },
+        EnumOption {
+            value: 0.333_496_1,
+            label: "Condenser 414".to_string(),
+        },
+        EnumOption {
+            value: 0.500_244_14,
+            label: "Condenser 184".to_string(),
+        },
+        EnumOption {
+            value: 0.666_992_2,
+            label: "Ribbon 160".to_string(),
+        },
+        EnumOption {
+            value: 0.833_740_23,
+            label: "Ribbon 121".to_string(),
+        },
+        EnumOption {
+            value: 0.958_496_1,
+            label: "Custom IR".to_string(),
+        },
+    ];
+    out.insert(param_map::cab::mic1::IR_SEL, mic.clone());
+    out.insert(param_map::cab::mic2::IR_SEL, mic);
+
+    out.insert(
+        param_map::pedals::reverb::MODE,
+        vec![
+            EnumOption {
+                value: 0.251_953_12,
+                label: "Reverb".to_string(),
+            },
+            EnumOption {
+                value: 0.751_953_1,
+                label: "Shimmer".to_string(),
+            },
+        ],
+    );
+    out.insert(
+        5,
+        vec![
+            EnumOption {
+                value: 0.128_906_25,
+                label: "FATSO".to_string(),
+            },
+            EnumOption {
+                value: 0.503_906_25,
+                label: "BLADE 1".to_string(),
+            },
+            EnumOption {
+                value: 0.875,
+                label: "BLADE 2".to_string(),
+            },
+        ],
+    );
+
+    out
+}
+
 fn parse_format_samples(
     prompt: &str,
 ) -> Option<std::collections::HashMap<i32, Vec<(f32, String)>>> {
@@ -322,7 +414,15 @@ pub fn resolve_ai_params(
     original_prompt: &str,
     ai_params: Vec<AiParamChange>,
 ) -> Result<Vec<ParamChange>, ResolveError> {
-    let enums = parse_enum_options(original_prompt);
+    let enums = {
+        let mut e = default_enum_options();
+        if let Some(from_prompt) = parse_enum_options(original_prompt) {
+            for (k, v) in from_prompt {
+                e.insert(k, v);
+            }
+        }
+        Some(e)
+    };
     let samples = parse_format_samples(original_prompt);
 
     let mut out: Vec<ParamChange> = Vec::with_capacity(ai_params.len());
