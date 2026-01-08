@@ -186,6 +186,14 @@ fn parse_numeric_value(value: &serde_json::Value) -> Option<f32> {
     }
 }
 
+fn parse_bool_like(s: &str) -> Option<f32> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "on" | "true" | "yes" | "enabled" => Some(1.0),
+        "off" | "false" | "no" | "disabled" => Some(0.0),
+        _ => None,
+    }
+}
+
 fn parse_percent(s: &str) -> Option<f32> {
     let t = s.trim().trim_end_matches('%').trim();
     let v = t.parse::<f32>().ok()?;
@@ -351,6 +359,10 @@ fn resolve_value_for_index(
         return Err(ResolveError(format!("empty string value for idx {index}")));
     }
 
+    if let Some(v) = parse_bool_like(s_trim) {
+        return Ok(v);
+    }
+
     if index == param_map::selectors::AMP_TYPE_INDEX {
         if let Some(v) = resolve_amp_type(value) {
             return Ok(v);
@@ -372,6 +384,12 @@ fn resolve_value_for_index(
 
     // Allow dB specs when we have formatted samples for this param (best), else fallback EQ mapping.
     if s_trim.to_ascii_lowercase().contains("db") {
+        // Common shorthand: "flat" / "0 dB"
+        if s_trim.trim().eq_ignore_ascii_case("flat") {
+            if (54..=82).contains(&index) {
+                return Ok(0.5);
+            }
+        }
         if let Some(db) = parse_db(s_trim) {
             if let Some(samples) = samples.and_then(|m| m.get(&index)) {
                 let mut pts: Vec<(f32, f32)> = Vec::new(); // (db, norm)

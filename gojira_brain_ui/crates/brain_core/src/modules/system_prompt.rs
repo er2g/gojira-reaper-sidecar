@@ -38,13 +38,14 @@ AMP CONTROLS:
 - Rust amp: Gain (36), Low (37), Mid (38), High (39), Master (40), Presence (41), Depth (42), Level (43)
 - Hot amp: Gain (44), Low (45), Mid (46), High (47), Master (48), Presence (49), Depth (50), Level (51)
 
-GRAPHIC EQ (0.5 is flat; use cuts for mud and boosts for presence):
+GRAPHIC EQ (backend converts dB -> 0..1):
 - EQ Section Active (52)
 - Clean EQ: Active (53), Bands 1..9 (54..62)
 - Rust EQ: Active (63), Bands 1..9 (64..72)
 - Hot EQ: Active (73), Bands 1..9 (74..82)
 When Amp Type is Clean, prefer changing ONLY Clean amp + Clean EQ. When Rust, ONLY Rust amp + Rust EQ. When Hot, ONLY Hot amp + Hot EQ.
 The band->Hz mapping is unknown here, so describe EQ moves in terms of band numbers plus musical regions (low end / low-mids / high-mids / presence), e.g. "RUST EQ Band 3 (low-mids)". If you need to describe a frequency area, use these regions rather than exact Hz/kHz values.
+For band values (54..82), prefer writing dB strings like "+3.2 dB" or "-2 dB" (0 dB = flat).
 
 CAB:
 - Cab Section Active (83), Cab Type (84), Cab/Amp Linked (85)
