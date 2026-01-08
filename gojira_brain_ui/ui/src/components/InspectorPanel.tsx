@@ -18,6 +18,7 @@ export default function InspectorPanel(props: {
   setIndexRemap: (m: Record<number, number>) => void;
   paramEnums: Record<string, Array<{ value: number; label: string }>>;
   paramFormats: Record<string, { min: string; mid: string; max: string }>;
+  paramFormatSamples: Record<string, Array<{ norm: number; formatted: string }>>;
 }) {
   return (
     <aside className="panel inspector">
@@ -50,7 +51,7 @@ export default function InspectorPanel(props: {
           <h3>Engineer’s Notes</h3>
           <div className="notes">{props.preview?.reasoning || "Generate a tone to see reasoning."}</div>
           <h3>Diff</h3>
-          <DiffViewer items={props.preview?.diff ?? []} />
+          <DiffViewer items={props.preview?.diff ?? []} formats={props.paramFormats} samples={props.paramFormatSamples} />
           <div className="muted" style={{ marginTop: 10 }}>
             {props.lastGenMode === "merge"
               ? "Preview shows changes vs current preset; Apply sends only deltas."
@@ -185,4 +186,3 @@ export default function InspectorPanel(props: {
     </aside>
   );
 }
-

@@ -19,7 +19,10 @@ export default function App() {
   const [validationReport, setValidationReport] = useState<Record<string, string>>({});
   const [paramEnums, setParamEnums] = useState<Record<string, Array<{ value: number; label: string }>>>({});
   const [paramFormats, setParamFormats] = useState<Record<string, { min: string; mid: string; max: string }>>({});
-  const [indexRemap, setIndexRemap] = useState<Record<number, number>>({});
+  const [paramFormatSamples, setParamFormatSamples] = useState<
+    Record<string, Array<{ norm: number; formatted: string }>>
+  >({});
+  const [indexRemap, setIndexRemap] = useState<Record<number, number>>({});  
 
   const [vaultPassphrase, setVaultPassphrase] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -126,6 +129,7 @@ export default function App() {
           setValidationReport(e.payload.validation_report ?? {});
           setParamEnums(e.payload.param_enums ?? {});
           setParamFormats(e.payload.param_formats ?? {});
+          setParamFormatSamples(e.payload.param_format_samples ?? {});
 
           const last = (await store.get<string>("last_target_fx_guid")) ?? "";
           const next =
@@ -403,9 +407,9 @@ export default function App() {
           setIndexRemap={setIndexRemap}
           paramEnums={paramEnums}
           paramFormats={paramFormats}
+          paramFormatSamples={paramFormatSamples}
         />
       </div>
     </div>
   );
 }
-

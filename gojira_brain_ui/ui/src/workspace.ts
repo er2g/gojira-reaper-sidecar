@@ -77,6 +77,9 @@ export function buildPromptFromChat(args: {
       "Below is the current preset as normalized 0..1 parameters. Treat it as the baseline.",
     );
     lines.push(
+      "When possible, express values in human units (dB/ms/bpm) or knob scales (e.g. 6.5 out of 10); the backend will convert to normalized 0..1.",
+    );
+    lines.push(
       "Goal: refine this preset. Return ONLY a small list of parameter changes (deltas) relative to the baseline.",
     );
     lines.push("Keep the change list minimal and targeted (typically <= 12 params).");
@@ -94,6 +97,9 @@ export function buildPromptFromChat(args: {
     lines.push("IMPORTANT: Return only the changed params (deltas), not a full preset.");
   } else {
     lines.push("CURRENT REQUEST:");
+    lines.push(
+      "Hint: prefer human units (dB/ms/bpm), option labels, or knob scales when you can; the backend will convert to normalized 0..1.",
+    );
     lines.push(args.current.trim());
   }
 

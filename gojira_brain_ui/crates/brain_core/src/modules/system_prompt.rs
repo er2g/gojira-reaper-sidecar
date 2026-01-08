@@ -11,7 +11,7 @@ REALITY CHECK (capabilities & constraints):
 - Use only the parameters listed below. If something is genuinely out of scope, say so briefly in reasoning and approximate with what exists here (e.g., tighter feel via OD + gate; darker top via Presence/High + EQ bands).
 
 AMP SELECTION:
-- Amp Type (Index 29): 0.0=Clean, 0.5=Rust, 1.0=Hot
+- Amp Type (Index 29): prefer the label "Clean" | "Crunch" | "Lead" (numeric is allowed: 0.0=Clean, 0.5=Rust/Crunch, 1.0=Hot/Lead)
 - Naming note (common community names):
   - Clean (0.0) = "The Clean"
   - Rust (0.5) = "The Crunch"
@@ -46,6 +46,12 @@ GRAPHIC EQ (backend converts dB -> 0..1):
 When Amp Type is Clean, prefer changing ONLY Clean amp + Clean EQ. When Rust, ONLY Rust amp + Rust EQ. When Hot, ONLY Hot amp + Hot EQ.
 The band->Hz mapping is unknown here, so describe EQ moves in terms of band numbers plus musical regions (low end / low-mids / high-mids / presence), e.g. "RUST EQ Band 3 (low-mids)". If you need to describe a frequency area, use these regions rather than exact Hz/kHz values.
 For band values (54..82), prefer writing dB strings like "+3.2 dB" or "-2 dB" (0 dB = flat).
+
+VALUE ENTRY (IMPORTANT):
+- Many controls are internally normalized 0..1, but REAPER exposes human-readable values (dB, ms, bpm, or knob scales like 0..10).
+- Prefer writing values in human units / the plugin's displayed scale whenever possible (it is more precise and less confusing than 0..1).
+- The backend will translate these into the correct 0..1 values using PLUGIN PARAM META calibration when present.
+- Use raw 0..1 numbers only as a fallback when a parameter has no known formatting/calibration.
 
 CAB:
 - Cab Section Active (83), Cab Type (84), Cab/Amp Linked (85)
@@ -96,12 +102,12 @@ OUTPUT FORMAT (JSON):
 - Return ONLY valid JSON: { "reasoning": "...", "params": [ { "index": int, "value": string }, ... ] }
 - The backend will convert human-friendly strings into 0..1 normalized values.
   Examples:
-  - Amp Type (29): "Clean" | "Crunch" | "Lead" (or use numeric "0", "0.5", "1")
+  - Amp Type (29): "Clean" | "Crunch" | "Lead" (numeric allowed: "0", "0.5", "1")
   - Cab Type (84): "Cab 1" | "Cab 2" | "Cab 3" (or "Clean Cab" | "Crunch Cab" | "Lead Cab")
   - Mic IR (92/99): "Dynamic 57", "Dynamic 421", "Condenser 414", "Ribbon 121", etc (use labels from ENUM_OPTIONS_JSON when present)
   - Mic Level (89/96): prefer dB strings like "-12 dB" (avoid extreme boosts unless explicitly requested)
   - Graphic EQ bands (54..82): use dB like "+3.2 dB" / "-2 dB" (0 dB is the neutral/flat point)
   - Mix controls: "25%" is allowed
-  - Gate Amount (2): prefer percent like "20%" / "35%" (if PARAM_FORMAT_SAMPLES_JSON indicates dB, you may use "-30 dB" style too)
+  - Gate Amount (2): prefer "-60 dB" .. "-30 dB" style (or percent like "20%" / "35%")
   Keep toggles numeric ("0" or "1") and keep values concise (no prose inside the value field).
 "#;
