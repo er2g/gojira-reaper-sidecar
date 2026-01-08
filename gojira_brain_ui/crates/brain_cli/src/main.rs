@@ -5,6 +5,7 @@ use brain_core::modules::value_resolver::{resolve_ai_params, AiToneResponse};
 use brain_core::{param_map, protocol::ParamChange};
 use clap::Parser;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use tungstenite::stream::MaybeTlsStream;
@@ -59,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     let args = Args::parse();
 
-    let prompt = if let Some(p) = args.prompt.clone() {
+    let mut prompt = if let Some(p) = args.prompt.clone() {
         p
     } else if let Some(path) = args.prompt_file.clone() {
         std::fs::read_to_string(&path)
@@ -91,7 +92,8 @@ async fn main() -> anyhow::Result<()> {
         (None, String::new(), None)
     } else {
         let (mut ws, _resp) = connect(args.ws_url.as_str())?;
-        let (session_token, instances, validation_report) = wait_handshake(&mut ws)?;
+        let (session_token, instances, validation_report, param_enums, param_formats, param_format_samples) =
+            wait_handshake(&mut ws)?;
 
         eprintln!("handshake ok: {} instance(s)", instances.len());
         if !validation_report.is_empty() {
@@ -100,6 +102,15 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("  {k}: {v}");
             }
         }
+
+        // Match the UI behavior: append compact plugin meta so the model can pick enum labels,
+        // and so our resolver can convert human units using formatted triplets/samples.
+        prompt = append_plugin_param_meta_to_prompt(
+            &prompt,
+            &param_enums,
+            &param_formats,
+            &param_format_samples,
+        );
 
         let target = if let Some(g) = args.target_guid.clone() {
             g
@@ -178,6 +189,9 @@ fn wait_handshake(
     String,
     Vec<brain_core::protocol::GojiraInstance>,
     std::collections::HashMap<String, String>,
+    HashMap<i32, Vec<brain_core::protocol::ParamEnumOption>>,
+    HashMap<i32, brain_core::protocol::ParamFormatTriplet>,
+    HashMap<i32, Vec<brain_core::protocol::ParamFormatSample>>,
 )> {
     loop {
         let msg = ws.read()?;
@@ -187,12 +201,126 @@ fn wait_handshake(
             session_token,
             instances,
             validation_report,
+            param_enums,
+            param_formats,
+            param_format_samples,
             ..
         } = server
         {
-            return Ok((session_token, instances, validation_report));
+            return Ok((
+                session_token,
+                instances,
+                validation_report,
+                param_enums,
+                param_formats,
+                param_format_samples,
+            ));
         }
     }
+}
+
+fn append_plugin_param_meta_to_prompt(
+    prompt: &str,
+    enums: &HashMap<i32, Vec<brain_core::protocol::ParamEnumOption>>,
+    formats: &HashMap<i32, brain_core::protocol::ParamFormatTriplet>,
+    samples: &HashMap<i32, Vec<brain_core::protocol::ParamFormatSample>>,
+) -> String {
+    if enums.is_empty() && formats.is_empty() && samples.is_empty() {
+        return prompt.to_string();
+    }
+
+    let mut meta = String::new();
+    meta.push_str("\n\nPLUGIN PARAM META (from the current REAPER instance):\n");
+
+    let include_enum = [84, 92, 99, 113, 5];
+    let mut enum_obj: HashMap<i32, Vec<(f32, String)>> = HashMap::new();
+    for idx in include_enum {
+        if let Some(opts) = enums.get(&idx) {
+            let mapped: Vec<(f32, String)> = opts
+                .iter()
+                .map(|o| (o.value, o.label.clone()))
+                .collect();
+            enum_obj.insert(idx, mapped);
+        }
+    }
+
+    let mut include_fmt: Vec<i32> = Vec::new();
+    include_fmt.extend([0, 1, 2]); // input/output gain + gate
+    include_fmt.extend(30..=51); // amp knobs
+    include_fmt.extend(54..=82); // graphic EQ bands
+    include_fmt.extend([87, 88, 94, 95]); // cab mic position/distance
+    include_fmt.extend([105, 106, 108]); // delay
+    include_fmt.extend([114, 115, 116, 117]); // reverb
+    include_fmt.sort_unstable();
+    include_fmt.dedup();
+
+    let mut fmt_obj: HashMap<i32, (String, String, String)> = HashMap::new();
+    for idx in include_fmt {
+        if let Some(t) = formats.get(&idx) {
+            fmt_obj.insert(idx, (t.min.clone(), t.mid.clone(), t.max.clone()));
+        }
+    }
+
+    if !enum_obj.is_empty() {
+        if let Ok(j) = serde_json::to_string(&enum_obj) {
+            meta.push_str("ENUM_OPTIONS_JSON=");
+            meta.push_str(&j);
+            meta.push('\n');
+        }
+    }
+    if !fmt_obj.is_empty() {
+        if let Ok(j) = serde_json::to_string(&fmt_obj) {
+            meta.push_str("FORMATTED_VALUE_TRIPLETS_JSON=");
+            meta.push_str(&j);
+            meta.push('\n');
+        }
+    }
+
+    if !samples.is_empty() {
+        let mut sample_obj: HashMap<i32, Vec<(f32, String)>> = HashMap::new();
+        let mut include: Vec<i32> = Vec::new();
+        include.push(2); // Gate
+        include.extend(54..=82); // Graphic EQ bands
+        include.extend([29, 30, 31, 32, 33, 34, 35]); // Clean amp
+        include.extend(36..=43); // Rust amp
+        include.extend(44..=51); // Hot amp
+        include.extend([101, 105, 106, 108, 112, 113, 114, 115, 116, 117]); // Time FX
+        include.extend([83, 84, 85, 92, 99]); // Cab selectors
+        include.sort_unstable();
+        include.dedup();
+
+        for idx in include {
+            if let Some(v) = samples.get(&idx) {
+                let mapped: Vec<(f32, String)> = v
+                    .iter()
+                    .map(|s| (s.norm, s.formatted.clone()))
+                    .collect();
+                if !mapped.is_empty() {
+                    sample_obj.insert(idx, mapped);
+                }
+            }
+        }
+
+        if !sample_obj.is_empty() {
+            if let Ok(j) = serde_json::to_string(&sample_obj) {
+                meta.push_str("PARAM_FORMAT_SAMPLES_JSON=");
+                meta.push_str(&j);
+                meta.push('\n');
+            }
+        }
+    }
+
+    meta.push_str("Use these option labels when choosing Cab Type (84) and Mic IR (92/99). Set the parameter value close to the provided float for the desired label.\n");
+    meta.push_str("For continuous cab mic controls (Position/Distance), the formatted triplets can hint at units/direction; use them to pick sensible normalized values.\n");
+    meta.push_str("You may specify some values in human units (like dB) if PARAM_FORMAT_SAMPLES_JSON is present; the backend will translate them to 0..1.\n");
+
+    const MAX_EXTRA_CHARS: usize = 25_000;
+    if meta.len() > MAX_EXTRA_CHARS {
+        meta.truncate(MAX_EXTRA_CHARS);
+        meta.push_str("\n...(meta truncated)\n");
+    }
+
+    format!("{prompt}{meta}")
 }
 
 fn wait_ack(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>) -> anyhow::Result<()> {

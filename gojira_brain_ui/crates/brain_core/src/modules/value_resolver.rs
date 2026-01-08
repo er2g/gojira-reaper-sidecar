@@ -315,6 +315,18 @@ fn parse_ms_from_formatted(s: &str) -> Option<f32> {
     }
 }
 
+fn parse_hz_value(s: &str) -> Option<f32> {
+    let t = s.trim().to_ascii_lowercase().replace(',', ".");
+    let t = t.replace(' ', "");
+    if let Some(v) = t.strip_suffix("khz") {
+        return v.parse::<f32>().ok().map(|n| n * 1000.0);
+    }
+    if let Some(v) = t.strip_suffix("hz") {
+        return v.parse::<f32>().ok();
+    }
+    None
+}
+
 fn parse_bpm_value(s: &str) -> Option<f32> {
     let t = s.trim().to_ascii_lowercase().replace(',', ".");
     if !t.contains("bpm") {
@@ -505,6 +517,11 @@ fn resolve_value_for_index(
             return Ok(v);
         }
 
+        // Pan controls: allow -1..1 (center=0.0) and map to 0..1 (center=0.5).
+        if (index == 90 || index == 97) && (-1.0..=1.0).contains(&v) {
+            return Ok(((v + 1.0) * 0.5).clamp(0.0, 1.0));
+        }
+
         // For non-normalized numeric values, only accept them if we can invert a known physical
         // mapping (samples or formatted triplets). This prevents nonsense like "650" from being
         // silently clamped to 1.0.
@@ -628,6 +645,23 @@ fn resolve_value_for_index(
         )));
     }
 
+    // Frequency units (Hz/kHz), e.g. "150 Hz", "6.5 kHz" (commonly used for reverb cuts).
+    if let Some(hz) = parse_hz_value(s_trim) {
+        if let Some(samples) = samples {
+            if let Some(norm) = invert_from_samples_physical(samples, index, hz) {
+                return Ok(norm);
+            }
+        }
+        if let Some(triplets) = triplets {
+            if let Some(norm) = invert_from_triplet_physical(triplets, index, hz) {
+                return Ok(norm);
+            }
+        }
+        return Err(ResolveError(format!(
+            "hz unit provided for idx {index} but no calibration mapping was available"
+        )));
+    }
+
     // If prompt included enums, suggest it in error.
     let has_enums = extract_prompt_json_line(prompt, "ENUM_OPTIONS_JSON=").is_some();
     if has_enums {
@@ -723,5 +757,29 @@ mod tests {
             err.0.contains("not a normalized 0..1"),
             "unexpected err: {err}"
         );
+    }
+
+    #[test]
+    fn pan_accepts_minus_one_to_one() {
+        let n = serde_json::Number::from_f64(-0.5).unwrap();
+        let params = vec![AiParamChange {
+            index: 90,
+            value: serde_json::Value::Number(n),
+        }];
+        let out = resolve_ai_params("hi", params).unwrap();
+        let v = out[0].value;
+        assert!((v - 0.25).abs() < 1e-6, "got {v}");
+    }
+
+    #[test]
+    fn hz_strings_use_default_triplet() {
+        let params = vec![AiParamChange {
+            index: 116,
+            value: serde_json::Value::String("150 Hz".to_string()),
+        }];
+        let out = resolve_ai_params("hi", params).unwrap();
+        let v = out[0].value;
+        // (150-50)/(700-50)=100/650
+        assert!((v - (100.0 / 650.0)).abs() < 1e-4, "got {v}");
     }
 }

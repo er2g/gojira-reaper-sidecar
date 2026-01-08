@@ -516,6 +516,11 @@ async fn generate_tone_single_stage(
                 api_key.ok_or_else(|| GeminiError::Auth("missing GEMINI_API_KEY".to_string()))?;
             match generate_tone_aistudio(api_key, model, req.clone()).await {
                 Ok(ok) => Ok(ok),
+                Err(GeminiError::Auth(msg))
+                    if msg.to_ascii_lowercase().contains("oauth2 is required") =>
+                {
+                    generate_tone_google_oauth(model, req).await
+                }
                 Err(GeminiError::BadStatus { status, body })
                     if status == StatusCode::UNAUTHORIZED
                         && body.to_ascii_lowercase().contains("api keys are not supported") =>
@@ -565,7 +570,15 @@ async fn generate_research_auto(
         GeminiBackend::AiStudioApiKey => {
             let api_key =
                 api_key.ok_or_else(|| GeminiError::Auth("missing GEMINI_API_KEY".to_string()))?;
-            generate_text_aistudio(api_key, model, &full_prompt).await
+            match generate_text_aistudio(api_key, model, &full_prompt).await {
+                Ok(ok) => Ok(ok),
+                Err(GeminiError::Auth(msg))
+                    if msg.to_ascii_lowercase().contains("oauth2 is required") =>
+                {
+                    generate_text_google_oauth(model, &full_prompt).await
+                }
+                Err(e) => Err(e),
+            }
         }
         GeminiBackend::GoogleAiOauth => generate_text_google_oauth(model, &full_prompt).await,
         GeminiBackend::VertexAi => generate_text_vertex(model, &full_prompt).await,
@@ -604,7 +617,7 @@ pub async fn generate_tone_aistudio(
                             "type": "OBJECT",
                             "properties": {
                                 "index": { "type": "INTEGER" },
-                                "value": { "type": "NUMBER" }
+                                "value": { "type": "STRING" }
                             },
                             "required": ["index", "value"]
                         }
@@ -643,7 +656,18 @@ pub async fn generate_tone_aistudio(
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
 
-        // Some endpoints reject schema fields; retry once without schema.
+        if status == StatusCode::UNAUTHORIZED
+            && body
+                .to_ascii_lowercase()
+                .contains("api keys are not supported by this api")
+        {
+            return Err(GeminiError::Auth(
+                "AI Studio API key auth was rejected by the Generative Language API; OAuth2 is required in this environment"
+                    .to_string(),
+            ));
+        }
+
+        // Some endpoints reject schema fields; retry once without schema.      
         if attempt == 1
             && status == StatusCode::BAD_REQUEST
             && body.to_ascii_lowercase().contains("unknown")
@@ -692,6 +716,17 @@ async fn generate_text_aistudio(
 
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
+
+        if status == StatusCode::UNAUTHORIZED
+            && body
+                .to_ascii_lowercase()
+                .contains("api keys are not supported by this api")
+        {
+            return Err(GeminiError::Auth(
+                "AI Studio API key auth was rejected by the Generative Language API; OAuth2 is required in this environment"
+                    .to_string(),
+            ));
+        }
         let retryable = status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error();
         if !retryable || attempt == 3 {
             return Err(GeminiError::BadStatus { status, body });
@@ -898,7 +933,7 @@ async fn generate_tone_vertex(model: &str, req: ToneRequest) -> Result<ToneRespo
                             "type": "OBJECT",
                             "properties": {
                                 "index": { "type": "INTEGER" },
-                                "value": { "type": "NUMBER" }
+                                "value": { "type": "STRING" }
                             },
                             "required": ["index", "value"]
                         }
@@ -1068,33 +1103,46 @@ async fn generate_text_vertex(model: &str, full_prompt: &str) -> Result<String, 
 }
 
 fn gcloud_print_access_token() -> Result<String, GeminiError> {
-    let out = if cfg!(windows) {
-        Command::new("cmd")
-            .args(["/C", "gcloud", "auth", "print-access-token"])
-            .output()
-    } else {
-        Command::new("gcloud").args(["auth", "print-access-token"]).output()
+    fn run(args: &[&str]) -> std::io::Result<std::process::Output> {
+        if cfg!(windows) {
+            let mut cmd_args: Vec<&str> = vec!["/C", "gcloud"];
+            cmd_args.extend_from_slice(args);
+            Command::new("cmd").args(cmd_args).output()
+        } else {
+            Command::new("gcloud").args(args).output()
+        }
     }
-    .map_err(|e| GeminiError::Auth(format!("failed to run gcloud: {e}")))?;
 
-    if !out.status.success() {
+    // Prefer ADC tokens (they can be minted with explicit scopes via:
+    // `gcloud auth application-default login --scopes=...`).
+    let candidates: [&[&str]; 2] = [
+        &["auth", "application-default", "print-access-token"],
+        &["auth", "print-access-token"],
+    ];
+
+    let mut last_err: Option<String> = None;
+    for args in candidates {
+        let out = run(args).map_err(|e| GeminiError::Auth(format!("failed to run gcloud: {e}")))?;
+        if out.status.success() {
+            let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if token.is_empty() {
+                last_err = Some("gcloud returned empty access token".to_string());
+                continue;
+            }
+            return Ok(token);
+        }
         let stderr = String::from_utf8_lossy(&out.stderr);
         let msg = stderr.trim();
-        return Err(GeminiError::Auth(if msg.is_empty() {
-            format!("gcloud auth print-access-token failed: {}", out.status)
+        last_err = Some(if msg.is_empty() {
+            format!("gcloud {} failed: {}", args.join(" "), out.status)
         } else {
-            format!("gcloud auth print-access-token failed: {msg}")
-        }));
+            format!("gcloud {} failed: {msg}", args.join(" "))
+        });
     }
 
-    let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if token.is_empty() {
-        return Err(GeminiError::Auth(
-            "gcloud returned empty access token".to_string(),
-        ));
-    }
-
-    Ok(token)
+    Err(GeminiError::Auth(
+        last_err.unwrap_or_else(|| "failed to obtain access token via gcloud".to_string()),
+    ))
 }
 
 fn vertex_model_candidates(model: &str) -> Vec<String> {

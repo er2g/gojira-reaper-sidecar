@@ -9,22 +9,22 @@ const REVERB_ACTIVE_ANCHOR: i32 = 112;
 const DELAY_MIX_PROBE: i32 = 105;
 const REVERB_MIX_PROBE: i32 = 114;
 
+fn validation_report_enabled() -> bool {
+    matches!(
+        std::env::var("GOJIRA_SEND_VALIDATION_REPORT").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+    )
+}
+
 pub fn validate_parameter_map(
     api: &dyn ReaperApi,
     track: usize,
     fx_index: i32,
 ) -> HashMap<String, String> {
+    if !validation_report_enabled() {
+        return HashMap::new();
+    }
     let mut report = HashMap::new();
-
-    // Backward-compatible keys (original anchors).
-    report.insert(
-        "delay_active".to_string(),
-        anchor_report(api, track, fx_index, DELAY_ACTIVE_ANCHOR),
-    );
-    report.insert(
-        "reverb_active".to_string(),
-        anchor_report(api, track, fx_index, REVERB_ACTIVE_ANCHOR),
-    );
 
     report.insert(
         "delay_active_101".to_string(),
@@ -41,34 +41,6 @@ pub fn validate_parameter_map(
     report.insert(
         "reverb_mix_114".to_string(),
         mix_report(api, track, fx_index, REVERB_MIX_PROBE),
-    );
-
-    report.extend(validate_mix(api, track, fx_index));
-
-    // Small windows for quick forensic debugging (kept intentionally short).
-    report.insert(
-        "delay_window_98_110".to_string(),
-        window_dump(api, track, fx_index, 98..=110),
-    );
-    report.insert(
-        "reverb_window_110_122".to_string(),
-        window_dump(api, track, fx_index, 110..=122),
-    );
-    report.insert(
-        "pre_window_0_40".to_string(),
-        window_dump(api, track, fx_index, 0..=40),
-    );
-    report.insert(
-        "amp_eq_window_28_60".to_string(),
-        window_dump(api, track, fx_index, 28..=60),
-    );
-    report.insert(
-        "amp_eq_window_60_90".to_string(),
-        window_dump(api, track, fx_index, 60..=90),
-    );
-    report.insert(
-        "cab_window_83_100".to_string(),
-        window_dump(api, track, fx_index, 83..=100),
     );
     report
 }
@@ -312,6 +284,7 @@ fn mix_report(api: &dyn ReaperApi, track: usize, fx_index: i32, idx: i32) -> Str
     }
 }
 
+#[allow(dead_code)]
 fn validate_mix(api: &dyn ReaperApi, track: usize, fx_index: i32) -> HashMap<String, String> {
     let mut report = HashMap::new();
     let delay_anchor = pick_active_near(api, track, fx_index, DELAY_ACTIVE_ANCHOR, 96..=110)
@@ -351,6 +324,7 @@ fn validate_mix(api: &dyn ReaperApi, track: usize, fx_index: i32) -> HashMap<Str
     report
 }
 
+#[allow(dead_code)]
 fn pick_active_near(
     api: &dyn ReaperApi,
     track: usize,
@@ -372,6 +346,7 @@ fn pick_active_near(
     candidates.first().map(|(idx, _)| *idx)
 }
 
+#[allow(dead_code)]
 fn pick_mix_near(
     api: &dyn ReaperApi,
     track: usize,
@@ -433,6 +408,7 @@ fn normalize(s: &str) -> String {
         .collect()
 }
 
+#[allow(dead_code)]
 fn window_dump(
     api: &dyn ReaperApi,
     track: usize,

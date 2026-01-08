@@ -100,9 +100,10 @@ impl MainLoop {
     }
 
     fn refresh_and_handshake(&mut self, api: &dyn ReaperApi, session_token: &str) {
-        let (instances, lookup) = resolver::scan_project_instances(api);
+        let (instances, lookup) = resolver::scan_project_instances(api);        
         self.cache.lookup = lookup;
 
+        let mut ready = false;
         let mut validation_report = HashMap::new();
         let mut param_enums = HashMap::new();
         let mut param_formats = HashMap::new();
@@ -111,6 +112,7 @@ impl MainLoop {
             if let Ok((track, fx_index)) =
                 resolver::resolve_fx(api, &mut self.cache.lookup, &first.fx_guid)
             {
+                ready = true;
                 validation_report = validator::validate_parameter_map(api, track, fx_index);
                 let (enums, formats, samples) = validator::probe_param_meta(api, track, fx_index);
                 param_enums = enums;
@@ -119,7 +121,9 @@ impl MainLoop {
             }
         }
         self.last_validation_report = validation_report.clone();
-        self.validation_ready = !validation_report.is_empty();
+        // We consider the system ready once we successfully resolved a target instance and probed
+        // basic metadata. The verbose validation report is optional and may be disabled.
+        self.validation_ready = ready;
 
         self.send(ServerMessage::Handshake {
             session_token: session_token.to_string(),
