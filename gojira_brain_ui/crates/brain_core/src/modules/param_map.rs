@@ -57,6 +57,7 @@ pub mod pedals {
 
     pub mod reverb {
         pub const ACTIVE: i32 = 112;
+        pub const MODE: i32 = 113;
         pub const MIX: i32 = 114;
         pub const TIME: i32 = 115;
         pub const LOW_CUT: i32 = 116;
@@ -67,6 +68,7 @@ pub mod pedals {
 pub mod cab {
     pub const ACTIVE: i32 = 83;
     pub const TYPE_SELECTOR: i32 = 84;
+    pub const AMP_LINKED: i32 = 85;
 
     pub mod mic1 {
         pub const POS: i32 = 87;

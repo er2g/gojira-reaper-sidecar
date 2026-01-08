@@ -306,6 +306,7 @@ fn label_for_index(index: i32) -> &'static str {
         param_map::pedals::delay::TIME => "Delay Tempo",
 
         param_map::pedals::reverb::ACTIVE => "Reverb Active",
+        param_map::pedals::reverb::MODE => "Reverb Mode",
         param_map::pedals::reverb::MIX => "Reverb Dry/Wet",
         param_map::pedals::reverb::TIME => "Reverb Time",
         param_map::pedals::reverb::LOW_CUT => "Reverb Low Cut",
