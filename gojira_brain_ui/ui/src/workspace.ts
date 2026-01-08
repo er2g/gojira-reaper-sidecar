@@ -72,21 +72,26 @@ export function buildPromptFromChat(args: {
   lines.push("");
 
   if (args.refine && args.baseParams?.length) {
-    lines.push("CURRENT PRESET (do NOT recreate from scratch):");
+    lines.push("CURRENT PRESET (baseline for iterative editing):");
     lines.push(
       "Below is the current preset as normalized 0..1 parameters. Treat it as the baseline.",
     );
-    lines.push("You are editing this preset. Output ONLY the changes (deltas).");
-    lines.push("Keep the change list minimal and targeted (usually <= 12 params).");
     lines.push(
-      "Do not reset unrelated modules. If you touch a module's parameters, include its Active toggle if needed.",
+      "Goal: refine this preset. Return ONLY a small list of parameter changes (deltas) relative to the baseline.",
+    );
+    lines.push("Keep the change list minimal and targeted (typically <= 12 params).");
+    lines.push(
+      "Avoid resetting unrelated modules. If you touch a module's parameters, include its Active toggle only when required.",
+    );
+    lines.push(
+      "If you believe a full rebuild is necessary, briefly explain why and still return the best minimal deltas you can.",
     );
     lines.push("BASE_PARAMS_JSON=" + JSON.stringify(args.baseParams));
     lines.push("");
     lines.push("EDIT REQUEST:");
     lines.push(args.current.trim());
     lines.push("");
-    lines.push("IMPORTANT: Return only params that need changing from the baseline.");
+    lines.push("IMPORTANT: Return only the changed params (deltas), not a full preset.");
   } else {
     lines.push("CURRENT REQUEST:");
     lines.push(args.current.trim());
@@ -116,4 +121,3 @@ export function initialWorkspace(): WorkspaceState {
     lastGenMode: "replace_active",
   };
 }
-
