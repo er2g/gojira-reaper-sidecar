@@ -90,7 +90,7 @@ pub async fn run(mut rx: mpsc::Receiver<UiCommand>, app: AppHandle) {
                             let Ok(text) = msg.into_text() else { continue };
                             let Ok(server_msg) = serde_json::from_str::<ServerMessage>(&text) else { continue };
                             match server_msg {
-                                ServerMessage::Handshake { session_token: t, instances, validation_report, param_enums, param_formats } => {
+                                ServerMessage::Handshake { session_token: t, instances, validation_report, param_enums, param_formats, param_format_samples } => {
                                     session_token = Some(t.clone());
 
                                     // Keep a copy in backend state so we can inject it into AI prompts.
@@ -101,6 +101,9 @@ pub async fn run(mut rx: mpsc::Receiver<UiCommand>, app: AppHandle) {
                                         if let Ok(mut g) = state.param_formats.lock() {
                                             *g = param_formats.clone();
                                         }
+                                        if let Ok(mut g) = state.param_format_samples.lock() {
+                                            *g = param_format_samples.clone();
+                                        }
                                     }
 
                                     let _ = app.emit("reaper://handshake", HandshakePayload {
@@ -109,6 +112,7 @@ pub async fn run(mut rx: mpsc::Receiver<UiCommand>, app: AppHandle) {
                                         validation_report,
                                         param_enums,
                                         param_formats,
+                                        param_format_samples,
                                     });
                                     let _ = send_raw(&mut write, &ClientCommand::HandshakeAck { session_token: t }).await;
                                     if let Some(pending) = pending_set_tone.take() {

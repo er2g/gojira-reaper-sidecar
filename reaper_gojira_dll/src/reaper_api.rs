@@ -11,6 +11,7 @@ pub trait ReaperApi {
     fn track_name(&self, track: usize) -> String;
 
     fn track_fx_count(&self, track: usize) -> i32;
+    fn track_fx_num_params(&self, track: usize, fx_index: i32) -> Option<i32>;
     fn track_fx_guid(&self, track: usize, fx_index: i32) -> Option<String>;
     fn track_fx_name(&self, track: usize, fx_index: i32) -> String;
     fn track_fx_param_name(&self, track: usize, fx_index: i32, param_index: i32)
@@ -98,6 +99,15 @@ impl ReaperApi for ReaperApiImpl {
 
     fn track_fx_count(&self, track: usize) -> i32 {
         unsafe { self.reaper.TrackFX_GetCount(Self::to_track_ptr(track)) }
+    }
+
+    fn track_fx_num_params(&self, track: usize, fx_index: i32) -> Option<i32> {
+        let n = unsafe { self.reaper.TrackFX_GetNumParams(Self::to_track_ptr(track), fx_index) };
+        if n <= 0 {
+            None
+        } else {
+            Some(n)
+        }
     }
 
     fn track_fx_guid(&self, track: usize, fx_index: i32) -> Option<String> {

@@ -15,6 +15,12 @@ pub struct ParamFormatTriplet {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ParamFormatSample {
+    pub norm: f32,
+    pub formatted: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     Unauthorized,
@@ -37,6 +43,8 @@ pub enum ServerMessage {
         param_enums: HashMap<i32, Vec<ParamEnumOption>>,
         #[serde(default)]
         param_formats: HashMap<i32, ParamFormatTriplet>,
+        #[serde(default)]
+        param_format_samples: HashMap<i32, Vec<ParamFormatSample>>,
     },
     ProjectChanged,
     Ack { command_id: String },

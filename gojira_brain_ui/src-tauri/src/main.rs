@@ -31,6 +31,7 @@ fn main() {
                 param_cache: Mutex::new(HashMap::new()),
                 param_enums: Mutex::new(HashMap::new()),
                 param_formats: Mutex::new(HashMap::new()),
+                param_format_samples: Mutex::new(HashMap::new()),
                 vault: Mutex::new(VaultState::default()),
                 index_remap: Mutex::new(HashMap::new()),
             });

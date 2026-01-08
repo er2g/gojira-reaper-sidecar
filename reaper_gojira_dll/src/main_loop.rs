@@ -106,14 +106,16 @@ impl MainLoop {
         let mut validation_report = HashMap::new();
         let mut param_enums = HashMap::new();
         let mut param_formats = HashMap::new();
+        let mut param_format_samples = HashMap::new();
         if let Some(first) = instances.first() {
             if let Ok((track, fx_index)) =
                 resolver::resolve_fx(api, &mut self.cache.lookup, &first.fx_guid)
             {
                 validation_report = validator::validate_parameter_map(api, track, fx_index);
-                let (enums, formats) = validator::probe_param_meta(api, track, fx_index);
+                let (enums, formats, samples) = validator::probe_param_meta(api, track, fx_index);
                 param_enums = enums;
                 param_formats = formats;
+                param_format_samples = samples;
             }
         }
         self.last_validation_report = validation_report.clone();
@@ -125,6 +127,7 @@ impl MainLoop {
             validation_report,
             param_enums,
             param_formats,
+            param_format_samples,
         });
     }
 

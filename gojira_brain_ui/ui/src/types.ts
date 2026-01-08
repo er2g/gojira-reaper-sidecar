@@ -20,6 +20,7 @@ export type HandshakePayload = {
   validation_report: Record<string, string>;
   param_enums?: Record<string, Array<{ value: number; label: string }>>;
   param_formats?: Record<string, { min: string; mid: string; max: string }>;
+  param_format_samples?: Record<string, Array<{ norm: number; formatted: string }>>;
 };
 
 export type ParamChange = {

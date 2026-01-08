@@ -88,4 +88,14 @@ CONSISTENCY:
 RUNTIME META (optional):
 - The user prompt may include a block like "PLUGIN PARAM META" with JSON for enumerated options (e.g., Cab Type (84), Mic IR (92/99)). If present, prefer selecting those by label and set the parameter value close to the provided float for that label.
 
-OUTPUT FORMAT (JSON): { "reasoning": "Short explanation of choices...", "params": [ { "index": int, "value": float }, ... ] } ONLY output valid JSON."#;
+OUTPUT FORMAT (JSON):
+- Return ONLY valid JSON: { "reasoning": "...", "params": [ { "index": int, "value": string }, ... ] }
+- The backend will convert human-friendly strings into 0..1 normalized values.
+  Examples:
+  - Amp Type (29): "Clean" | "Crunch" | "Lead" (or use numeric "0", "0.5", "1")
+  - Cab Type (84): "Cab 1" | "Cab 2" | "Cab 3" (or "Clean Cab" | "Crunch Cab" | "Lead Cab")
+  - Mic IR (92/99): "Dynamic 57", "Dynamic 421", "Condenser 414", "Ribbon 121", etc (use labels from ENUM_OPTIONS_JSON when present)
+  - Graphic EQ bands (54..82): use dB like "+3.2 dB" / "-2 dB" (0 dB is the neutral/flat point)
+  - Mix controls: "25%" is allowed
+  Keep toggles numeric ("0" or "1") and keep values concise (no prose inside the value field).
+"#;

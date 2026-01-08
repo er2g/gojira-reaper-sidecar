@@ -2,6 +2,7 @@ use crate::modules::cleaner::{apply_replace_active_cleaner, sanitize_params};
 use crate::modules::protocol::MergeMode;
 use crate::modules::protocol::ParamChange;
 use crate::modules::system_prompt::SYSTEM_PROMPT;
+use crate::modules::value_resolver::{resolve_ai_params, AiToneResponse};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -27,7 +28,7 @@ pub struct ToneRequest {
     pub user_prompt: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ToneResponse {
     pub reasoning: String,
     pub params: Vec<ParamChange>,
@@ -647,7 +648,7 @@ pub async fn generate_tone_aistudio(
             .await?;
         if resp.status().is_success() {
             let body = resp.text().await?;
-            return parse_tone_response(&body).map_err(GeminiError::Parse);
+            return parse_tone_response(&body, &req.user_prompt).map_err(GeminiError::Parse);
         }
 
         let status = resp.status();
@@ -754,7 +755,7 @@ async fn generate_tone_google_oauth(
                             "type": "OBJECT",
                             "properties": {
                                 "index": { "type": "INTEGER" },
-                                "value": { "type": "NUMBER" }
+                                "value": { "type": "STRING" }
                             },
                             "required": ["index", "value"]
                         }
@@ -785,7 +786,7 @@ async fn generate_tone_google_oauth(
             .await?;
         if resp.status().is_success() {
             let body = resp.text().await?;
-            return parse_tone_response(&body).map_err(GeminiError::Parse);
+            return parse_tone_response(&body, &req.user_prompt).map_err(GeminiError::Parse);
         }
 
         let status = resp.status();
@@ -951,7 +952,7 @@ async fn generate_tone_vertex(model: &str, req: ToneRequest) -> Result<ToneRespo
 
             if resp.status().is_success() {
                 let body = resp.text().await?;
-                return parse_tone_response(&body).map_err(GeminiError::Parse);
+                return parse_tone_response(&body, &req.user_prompt).map_err(GeminiError::Parse);
             }
 
             let status = resp.status();
@@ -1128,15 +1129,23 @@ fn vertex_model_candidates(model: &str) -> Vec<String> {
     ]
 }
 
-fn parse_tone_response(body: &str) -> Result<ToneResponse, String> {
+fn parse_tone_response(body: &str, original_prompt: &str) -> Result<ToneResponse, String> {
     let text = extract_candidate_text(body)?;
 
     // If Gemini respects structured output, `text` should be valid JSON.
     let extracted = extract_json_like(&text).unwrap_or(text.as_str());
 
-    serde_json::from_str::<ToneResponse>(extracted)
-        .or_else(|_| serde_json::from_str::<ToneResponse>(body))
-        .map_err(|e| format!("{e}: {extracted}"))
+    let parsed = serde_json::from_str::<AiToneResponse>(extracted)
+        .or_else(|_| serde_json::from_str::<AiToneResponse>(body))
+        .map_err(|e| format!("{e}: {extracted}"))?;
+
+    let resolved = resolve_ai_params(original_prompt, parsed.params)
+        .map_err(|e| e.to_string())?;
+
+    Ok(ToneResponse {
+        reasoning: parsed.reasoning,
+        params: resolved,
+    })
 }
 
 fn extract_candidate_text(body: &str) -> Result<String, String> {

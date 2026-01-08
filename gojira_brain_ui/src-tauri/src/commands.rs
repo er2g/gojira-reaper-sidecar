@@ -1,6 +1,8 @@
 use brain_core::cleaner::{apply_replace_active_cleaner, sanitize_params};
 use brain_core::gemini::{generate_tone_auto as gemini_generate_tone, ToneRequest};
-use brain_core::protocol::{ClientCommand, MergeMode, ParamChange, ParamEnumOption, ParamFormatTriplet};
+use brain_core::protocol::{
+    ClientCommand, MergeMode, ParamChange, ParamEnumOption, ParamFormatSample, ParamFormatTriplet,
+};
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::{AppHandle, State};
@@ -17,6 +19,7 @@ pub struct HandshakePayload {
     pub validation_report: HashMap<String, String>,
     pub param_enums: HashMap<i32, Vec<ParamEnumOption>>,
     pub param_formats: HashMap<i32, ParamFormatTriplet>,
+    pub param_format_samples: HashMap<i32, Vec<ParamFormatSample>>,
 }
 
 #[derive(Serialize)]
@@ -222,8 +225,14 @@ fn augment_prompt_with_param_meta(state: &AppState, prompt: &str) -> String {
         .ok()
         .map(|g| g.clone())
         .unwrap_or_default();
+    let samples = state
+        .param_format_samples
+        .lock()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default();
 
-    if enums.is_empty() && formats.is_empty() {
+    if enums.is_empty() && formats.is_empty() && samples.is_empty() {
         return prompt.to_string();
     }
 
@@ -268,8 +277,47 @@ fn augment_prompt_with_param_meta(state: &AppState, prompt: &str) -> String {
         }
     }
 
+    // Optionally include formatted samples (norm->formatted) so the Rust resolver can convert
+    // human units (like dB) into normalized 0..1 values without the model having to guess.
+    // Keep this limited to the most tone-relevant parameters to avoid prompt bloat.
+    if !samples.is_empty() {
+        let mut sample_obj: HashMap<i32, Vec<(f32, String)>> = HashMap::new();
+        let mut include: Vec<i32> = Vec::new();
+        include.push(2); // Gate
+        include.extend(54..=82); // Graphic EQ bands
+        include.extend([29, 30, 31, 32, 33, 34, 35]); // Clean amp
+        include.extend(36..=43); // Rust amp
+        include.extend(44..=51); // Hot amp
+        include.extend([101, 105, 106, 108, 112, 113, 114, 115, 116, 117]); // Time FX
+        include.extend([83, 84, 85, 92, 99]); // Cab selectors
+
+        include.sort_unstable();
+        include.dedup();
+
+        for idx in include {
+            if let Some(v) = samples.get(&idx) {
+                let mapped: Vec<(f32, String)> = v
+                    .iter()
+                    .map(|s| (s.norm, s.formatted.clone()))
+                    .collect();
+                if !mapped.is_empty() {
+                    sample_obj.insert(idx, mapped);
+                }
+            }
+        }
+
+        if !sample_obj.is_empty() {
+            if let Ok(j) = serde_json::to_string(&sample_obj) {
+                meta.push_str("PARAM_FORMAT_SAMPLES_JSON=");
+                meta.push_str(&j);
+                meta.push('\n');
+            }
+        }
+    }
+
     meta.push_str("Use these option labels when choosing Cab Type (84) and Mic IR (92/99). Set the parameter value close to the provided float for the desired label.\n");
     meta.push_str("For continuous cab mic controls (Position/Distance), the formatted triplets can hint at units/direction; use them to pick sensible normalized values.\n");
+    meta.push_str("You may specify some values in human units (like dB) if PARAM_FORMAT_SAMPLES_JSON is present; the backend will translate them to 0..1.\n");
 
     // Hard cap to prevent runaway prompts if IR lists are enormous.
     const MAX_EXTRA_CHARS: usize = 25_000;

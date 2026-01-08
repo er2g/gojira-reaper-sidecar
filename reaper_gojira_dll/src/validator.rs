@@ -1,5 +1,5 @@
 use crate::reaper_api::ReaperApi;
-use gojira_protocol::{ParamEnumOption, ParamFormatTriplet};
+use gojira_protocol::{ParamEnumOption, ParamFormatSample, ParamFormatTriplet};
 use std::collections::HashMap;
 
 const DELAY_ACTIVE_ANCHOR: i32 = 101;
@@ -77,9 +77,14 @@ pub fn probe_param_meta(
     api: &dyn ReaperApi,
     track: usize,
     fx_index: i32,
-) -> (HashMap<i32, Vec<ParamEnumOption>>, HashMap<i32, ParamFormatTriplet>) {
+) -> (
+    HashMap<i32, Vec<ParamEnumOption>>,
+    HashMap<i32, ParamFormatTriplet>,
+    HashMap<i32, Vec<ParamFormatSample>>,
+) {
     let mut enums: HashMap<i32, Vec<ParamEnumOption>> = HashMap::new();
     let mut formats: HashMap<i32, ParamFormatTriplet> = HashMap::new();
+    let mut samples: HashMap<i32, Vec<ParamFormatSample>> = HashMap::new();
 
     // Enumerated selectors we care about for cab/IR + a couple of FX modes.
     for (idx, samples, max_options) in [
@@ -108,7 +113,41 @@ pub fn probe_param_meta(
         }
     }
 
-    (enums, formats)
+    // Optional: attach a small set of formatted samples (norm->formatted) for unit conversion.
+    // Enabled via env var to avoid bloating handshake by default.
+    let enable_samples = std::env::var("GOJIRA_SEND_PARAM_SAMPLES")
+        .ok()
+        .map(|s| s.trim().eq_ignore_ascii_case("1") || s.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if enable_samples {
+        let steps: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
+        if let Some(n) = api.track_fx_num_params(track, fx_index) {
+            for idx in 0..n {
+                let idx = idx as i32;
+                if api.track_fx_param_name(track, fx_index, idx).is_none() {
+                    continue;
+                }
+                let mut v: Vec<ParamFormatSample> = Vec::new();
+                for &norm in &steps {
+                    let formatted = api
+                        .track_fx_format_param_value(track, fx_index, idx, norm)
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+                    if formatted.is_empty() {
+                        continue;
+                    }
+                    v.push(ParamFormatSample { norm, formatted });
+                }
+                if !v.is_empty() {
+                    samples.insert(idx, v);
+                }
+            }
+        }
+    }
+
+    (enums, formats, samples)
 }
 
 fn probe_format_triplet(
