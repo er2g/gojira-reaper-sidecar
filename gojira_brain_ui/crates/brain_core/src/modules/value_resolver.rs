@@ -163,6 +163,16 @@ fn default_formatted_value_triplets() -> std::collections::HashMap<i32, (String,
     out.insert(1, ("-24.0".to_string(), "0.0".to_string(), "24.0".to_string())); // Output Gain
     out.insert(2, ("-96.0".to_string(), "-48.0".to_string(), "0.0".to_string())); // Gate Amount
 
+    // Cab mic levels (typical range is -24..+24 dB; mid around 0 dB).
+    out.insert(
+        param_map::cab::mic1::LEVEL,
+        ("-24.0".to_string(), "0.0".to_string(), "24.0".to_string()),
+    );
+    out.insert(
+        param_map::cab::mic2::LEVEL,
+        ("-24.0".to_string(), "0.0".to_string(), "24.0".to_string()),
+    );
+
     // Tempo/time (no explicit unit in formatted strings, but these map linearly in practice).
     out.insert(108, ("40.0".to_string(), "140.0".to_string(), "240.0".to_string())); // DLY Tempo (bpm)
     out.insert(115, ("250.00".to_string(), "5125.00".to_string(), "10000.00".to_string())); // REV Time (ms)

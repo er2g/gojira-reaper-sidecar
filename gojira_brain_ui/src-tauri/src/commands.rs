@@ -257,7 +257,7 @@ fn augment_prompt_with_param_meta(state: &AppState, prompt: &str) -> String {
     include_fmt.extend([0, 1, 2]); // input/output gain + gate
     include_fmt.extend(30..=51); // amp knobs
     include_fmt.extend(54..=82); // graphic EQ bands
-    include_fmt.extend([87, 88, 94, 95]); // cab mic position/distance
+    include_fmt.extend([87, 88, 89, 94, 95, 96]); // cab mic position/distance/level
     include_fmt.extend([105, 106, 108]); // delay
     include_fmt.extend([114, 115, 116, 117]); // reverb
     include_fmt.sort_unstable();
@@ -298,7 +298,7 @@ fn augment_prompt_with_param_meta(state: &AppState, prompt: &str) -> String {
         include.extend(36..=43); // Rust amp
         include.extend(44..=51); // Hot amp
         include.extend([101, 105, 106, 108, 112, 113, 114, 115, 116, 117]); // Time FX
-        include.extend([83, 84, 85, 92, 99]); // Cab selectors
+        include.extend([83, 84, 85, 89, 92, 96, 99]); // Cab selectors (+ mic levels)
 
         include.sort_unstable();
         include.dedup();

@@ -27,6 +27,7 @@ pub trait ReaperApi {
         param_index: i32,
         value: f32,
     ) -> Option<String>;
+    fn track_fx_get_param(&self, track: usize, fx_index: i32, param_index: i32) -> Option<f32>;
     fn track_fx_set_param(
         &self,
         track: usize,
@@ -248,6 +249,25 @@ impl ReaperApi for ReaperApiImpl {
             Ok(())
         } else {
             Err("TrackFX_SetParam returned false".to_string())
+        }
+    }
+
+    fn track_fx_get_param(&self, track: usize, fx_index: i32, param_index: i32) -> Option<f32> {
+        let mut min: f64 = 0.0;
+        let mut max: f64 = 1.0;
+        let v = unsafe {
+            self.reaper.TrackFX_GetParam(
+                Self::to_track_ptr(track),
+                fx_index,
+                param_index,
+                &mut min as *mut f64,
+                &mut max as *mut f64,
+            )
+        };
+        if v.is_finite() {
+            Some(v as f32)
+        } else {
+            None
         }
     }
 }

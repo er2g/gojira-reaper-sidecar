@@ -1,5 +1,6 @@
 use crate::protocol::{
-    ClientCommand, ErrorCode, InboundMsg, MergeMode, OutboundMsg, ParamChange, ServerMessage,
+    AppliedParam, ClientCommand, ErrorCode, InboundMsg, MergeMode, OutboundMsg, ParamChange,
+    ServerMessage,
 };
 use crate::reaper_api::ReaperApi;
 use crate::resolver::{self, FxLookup};
@@ -211,6 +212,7 @@ impl MainLoop {
             params = apply_replace_active_cleaner(params);
         }
 
+        let mut applied_params: Vec<AppliedParam> = Vec::with_capacity(params.len());
         for p in &params {
             if let Err(e) = api.track_fx_set_param(track, fx_index, p.index, p.value) {
                 self.send(ServerMessage::Error {
@@ -219,9 +221,25 @@ impl MainLoop {
                 });
                 return;
             }
+
+            let applied = api
+                .track_fx_get_param(track, fx_index, p.index)
+                .unwrap_or(p.value);
+            let formatted = api
+                .track_fx_format_param_value(track, fx_index, p.index, applied)
+                .unwrap_or_default();
+            applied_params.push(AppliedParam {
+                index: p.index,
+                requested: p.value,
+                applied,
+                formatted,
+            });
         }
 
-        self.send(ServerMessage::Ack { command_id });
+        self.send(ServerMessage::Ack {
+            command_id,
+            applied_params,
+        });
     }
 
     fn send(&mut self, msg: ServerMessage) {

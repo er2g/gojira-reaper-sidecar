@@ -82,7 +82,7 @@ pub fn probe_param_meta(
     format_indices.extend([0, 1, 2]); // input/output gain + gate
     format_indices.extend(30..=51); // amp knobs
     format_indices.extend(54..=82); // graphic EQ bands
-    format_indices.extend([87, 88, 94, 95]); // cab mic position/distance
+    format_indices.extend([87, 88, 89, 94, 95, 96]); // cab mic position/distance/level
     format_indices.extend([105, 106, 108]); // delay
     format_indices.extend([114, 115, 116, 117]); // reverb
     format_indices.sort_unstable();
@@ -128,7 +128,7 @@ pub fn probe_param_meta(
             v.push(29); // amp selector
             v.extend(30..=51); // amp knobs
             v.extend(54..=82); // EQ bands
-            v.extend([83, 84, 85, 92, 99]); // cab selectors
+            v.extend([83, 84, 85, 89, 92, 96, 99]); // cab selectors (+ mic levels)
             v.extend([101, 105, 106, 108]); // delay
             v.extend([112, 113, 114, 115, 116, 117]); // reverb
             v.sort_unstable();

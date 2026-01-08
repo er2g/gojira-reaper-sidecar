@@ -17,5 +17,6 @@ pub enum OutboundMsg {
 }
 
 pub use gojira_protocol::{
-    ClientCommand, Confidence, ErrorCode, GojiraInstance, MergeMode, ParamChange, ServerMessage,
+    AppliedParam, ClientCommand, Confidence, ErrorCode, GojiraInstance, MergeMode, ParamChange,
+    ServerMessage,
 };

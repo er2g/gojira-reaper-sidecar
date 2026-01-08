@@ -63,10 +63,11 @@ Default pairing (when the user doesn't ask for cross-matching):
 - Lead amp (29=1.0) -> prefer Cab 3
 If you intentionally pick a Cab Type (84) (especially a cross-match), set Cab/Amp Linked (85)=0 so your choice isn't overridden by linking logic.
 If you're unsure, describe it as a voicing choice (bright/mid-forward/huge) rather than guessing a specific brand/model.
+Mic Level (89/96) is essentially mic gain. A good default is around -12 dB per mic; only raise it if you have a clear reason (quiet IR, intentional drive), and keep it reasonable to avoid clipping.
 
 TIME FX:
 - Delay: Active=101, Dry/Wet=105, Feedback=106, Tempo=108
-- Reverb: Active=112, Mode=113, Dry/Wet=114, Time=115, LowCut=116, HighCut=117
+- Reverb: Active=112, Mode=113, Dry/Wet=114, Time=115, LowCut=116, HighCut=117  
 If you turn Delay/Reverb on, include a sensible Dry/Wet (105/114). If you touch non-toggle params, also set the module Active toggle.
 If the prompt asks for "shimmer", set Reverb Mode (113) accordingly (prefer selecting the value by label from ENUM_OPTIONS_JSON when provided).
 For Tempo (108), you may use bpm strings like "120 bpm" (or a plain number in the 40..240 range if FORMATTED_VALUE_TRIPLETS_JSON is present).
@@ -98,6 +99,7 @@ OUTPUT FORMAT (JSON):
   - Amp Type (29): "Clean" | "Crunch" | "Lead" (or use numeric "0", "0.5", "1")
   - Cab Type (84): "Cab 1" | "Cab 2" | "Cab 3" (or "Clean Cab" | "Crunch Cab" | "Lead Cab")
   - Mic IR (92/99): "Dynamic 57", "Dynamic 421", "Condenser 414", "Ribbon 121", etc (use labels from ENUM_OPTIONS_JSON when present)
+  - Mic Level (89/96): prefer dB strings like "-12 dB" (avoid extreme boosts unless explicitly requested)
   - Graphic EQ bands (54..82): use dB like "+3.2 dB" / "-2 dB" (0 dB is the neutral/flat point)
   - Mix controls: "25%" is allowed
   - Gate Amount (2): prefer percent like "20%" / "35%" (if PARAM_FORMAT_SAMPLES_JSON indicates dB, you may use "-30 dB" style too)

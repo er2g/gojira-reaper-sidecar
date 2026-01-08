@@ -1,6 +1,6 @@
 use brain_core::cleaner::{apply_replace_active_cleaner, sanitize_params};
 use brain_core::gemini::{generate_tone_auto, ToneRequest};
-use brain_core::protocol::{ClientCommand, MergeMode, ServerMessage};
+use brain_core::protocol::{AppliedParam, ClientCommand, MergeMode, ServerMessage};
 use brain_core::modules::value_resolver::{resolve_ai_params, AiToneResponse};
 use brain_core::{param_map, protocol::ParamChange};
 use clap::Parser;
@@ -95,11 +95,11 @@ async fn main() -> anyhow::Result<()> {
         let (session_token, instances, validation_report, param_enums, param_formats, param_format_samples) =
             wait_handshake(&mut ws)?;
 
-        eprintln!("handshake ok: {} instance(s)", instances.len());
+        println!("handshake ok: {} instance(s)", instances.len());
         if !validation_report.is_empty() {
-            eprintln!("validator:");
+            println!("validator:");
             for (k, v) in validation_report.iter() {
-                eprintln!("  {k}: {v}");
+                println!("  {k}: {v}");
             }
         }
 
@@ -150,17 +150,17 @@ async fn main() -> anyhow::Result<()> {
         .await?
     };
 
-    eprintln!("\nreasoning:\n{}\n", tone.reasoning);
+    println!("\nreasoning:\n{}\n", tone.reasoning);
 
     let raw_params = tone.params.clone();
     let raw_sanitized = sanitize_params(raw_params.clone()).map_err(|e| anyhow::anyhow!(e))?;
     let cleaned = apply_replace_active_cleaner(MergeMode::ReplaceActive, raw_sanitized.clone());
 
-    eprintln!("qc:");
+    println!("qc:");
     print_qc(&raw_params, &raw_sanitized, &cleaned);
 
     if args.preview_only || args.no_ws {
-        eprintln!("preview_only=true (not applying to REAPER)");
+        println!("preview_only=true (not applying to REAPER)");
         return Ok(());
     }
 
@@ -174,11 +174,12 @@ async fn main() -> anyhow::Result<()> {
         command_id: format!("cli-{}", chrono_nanos()),
         target_fx_guid: target,
         mode: MergeMode::ReplaceActive,
-        params: cleaned,
+        params: cleaned.clone(),
     };
 
     ws.send(Message::Text(serde_json::to_string(&cmd)?))?;
-    wait_ack(ws)?;
+    let applied = wait_ack(ws)?;
+    print_applied_deltas(&cleaned, &applied);
 
     Ok(())
 }
@@ -248,7 +249,7 @@ fn append_plugin_param_meta_to_prompt(
     include_fmt.extend([0, 1, 2]); // input/output gain + gate
     include_fmt.extend(30..=51); // amp knobs
     include_fmt.extend(54..=82); // graphic EQ bands
-    include_fmt.extend([87, 88, 94, 95]); // cab mic position/distance
+    include_fmt.extend([87, 88, 89, 94, 95, 96]); // cab mic position/distance/level
     include_fmt.extend([105, 106, 108]); // delay
     include_fmt.extend([114, 115, 116, 117]); // reverb
     include_fmt.sort_unstable();
@@ -285,7 +286,7 @@ fn append_plugin_param_meta_to_prompt(
         include.extend(36..=43); // Rust amp
         include.extend(44..=51); // Hot amp
         include.extend([101, 105, 106, 108, 112, 113, 114, 115, 116, 117]); // Time FX
-        include.extend([83, 84, 85, 92, 99]); // Cab selectors
+        include.extend([83, 84, 85, 89, 92, 96, 99]); // Cab selectors (+ mic levels)
         include.sort_unstable();
         include.dedup();
 
@@ -323,21 +324,67 @@ fn append_plugin_param_meta_to_prompt(
     format!("{prompt}{meta}")
 }
 
-fn wait_ack(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>) -> anyhow::Result<()> {
+fn wait_ack(
+    ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
+) -> anyhow::Result<Vec<AppliedParam>> {
     loop {
         let msg = ws.read()?;
         let Message::Text(text) = msg else { continue };
         let server: ServerMessage = serde_json::from_str(&text)?;
         match server {
-            ServerMessage::Ack { command_id } => {
-                eprintln!("ack: {command_id}");
-                return Ok(());
+            ServerMessage::Ack {
+                command_id,
+                applied_params,
+                ..
+            } => {
+                println!("ack: {command_id}");
+                return Ok(applied_params);
             }
             ServerMessage::Error { msg, code } => {
                 return Err(anyhow::anyhow!("server error {code:?}: {msg}"));
             }
             _ => {}
         }
+    }
+}
+
+fn print_applied_deltas(requested: &[ParamChange], applied: &[AppliedParam]) {
+    let mut applied_by_index: HashMap<i32, &AppliedParam> = HashMap::new();
+    for a in applied {
+        applied_by_index.insert(a.index, a);
+    }
+
+    let mut mismatch_count = 0usize;
+    for p in requested {
+        let Some(a) = applied_by_index.get(&p.index) else {
+            println!(
+                "applied: idx={} requested={:.6} applied=<missing>",
+                p.index, p.value
+            );
+            mismatch_count += 1;
+            continue;
+        };
+        let delta = a.applied - p.value;
+        if delta.abs() > 0.0005 {
+            mismatch_count += 1;
+        }
+        if a.formatted.trim().is_empty() {
+            println!(
+                "applied: idx={} requested={:.6} applied={:.6} delta={:+.6}",
+                p.index, p.value, a.applied, delta
+            );
+        } else {
+            println!(
+                "applied: idx={} requested={:.6} applied={:.6} delta={:+.6} formatted=\"{}\"",
+                p.index, p.value, a.applied, delta, a.formatted
+            );
+        }
+    }
+
+    if mismatch_count == 0 {
+        println!("applied: ok (no material deltas)");
+    } else {
+        println!("applied: {mismatch_count} param(s) had deltas > 0.0005 or were missing");
     }
 }
 
@@ -531,11 +578,11 @@ fn print_qc(raw: &[ParamChange], raw_sanitized: &[ParamChange], final_params: &[
         .cloned()
         .collect();
 
-    eprintln!("  model (sanitized):");
+    println!("  model (sanitized):");
     print_grouped(raw_sanitized);
 
     if !added_by_cleaner.is_empty() {
-        eprintln!("  added_by_replace_active:");
+        println!("  added_by_replace_active:");
         print_grouped(&added_by_cleaner);
     }
 
@@ -550,7 +597,7 @@ fn print_qc(raw: &[ParamChange], raw_sanitized: &[ParamChange], final_params: &[
         }
     }
     if !changed_by_sanitize.is_empty() {
-        eprintln!("  changed_by_sanitize:");
+        println!("  changed_by_sanitize:");
         print_grouped(&changed_by_sanitize);
     }
 
@@ -568,11 +615,11 @@ fn print_qc(raw: &[ParamChange], raw_sanitized: &[ParamChange], final_params: &[
     }
 
     if warnings.is_empty() {
-        eprintln!("  warnings: none");
+        println!("  warnings: none");
     } else {
-        eprintln!("  warnings:");
+        println!("  warnings:");
         for w in warnings {
-            eprintln!("    - {w}");
+            println!("    - {w}");
         }
     }
 }
@@ -688,9 +735,9 @@ fn print_grouped(params: &[ParamChange]) {
 
     for (g, mut items) in groups {
         items.sort_by_key(|p| p.index);
-        eprintln!("    [{g}]");
+        println!("    [{g}]");
         for p in items {
-            eprintln!(
+            println!(
                 "      {:>4} {:<18} = {:.3}",
                 p.index,
                 label_for_index(p.index),

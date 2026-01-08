@@ -179,6 +179,14 @@ pub fn apply_replace_active_cleaner(mode: MergeMode, params: Vec<ParamChange>) -
         }
     }
 
+    // Safety calibration: cab mic levels are effectively gains and it's easy to overshoot into
+    // clipping. Cap them at 0 dB-ish (commonly ~0.5 normalized).
+    for p in out.iter_mut() {
+        if p.index == param_map::cab::mic1::LEVEL || p.index == param_map::cab::mic2::LEVEL {
+            p.value = p.value.min(0.5);
+        }
+    }
+
     out
 }
 

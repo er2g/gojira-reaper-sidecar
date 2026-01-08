@@ -66,10 +66,14 @@ pub enum ServerMessage {
         #[serde(default, deserialize_with = "int_key_map::deserialize")]
         param_formats: HashMap<i32, ParamFormatTriplet>,
         #[serde(default, deserialize_with = "int_key_map::deserialize")]
-        param_format_samples: HashMap<i32, Vec<ParamFormatSample>>,
+        param_format_samples: HashMap<i32, Vec<ParamFormatSample>>,     
     },
     ProjectChanged,
-    Ack { command_id: String },
+    Ack {
+        command_id: String,
+        #[serde(default)]
+        applied_params: Vec<AppliedParam>,
+    },
     Error { msg: String, code: ErrorCode },
 }
 
@@ -108,6 +112,15 @@ pub enum MergeMode {
 pub struct ParamChange {
     pub index: i32,
     pub value: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AppliedParam {
+    pub index: i32,
+    pub requested: f32,
+    pub applied: f32,
+    #[serde(default)]
+    pub formatted: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
