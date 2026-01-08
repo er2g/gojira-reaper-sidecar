@@ -29,6 +29,20 @@ pub struct PreviewResult {
     pub diff: Vec<DiffItem>,
 }
 
+fn merge_params(base: &[ParamChange], delta: &[ParamChange]) -> Vec<ParamChange> {
+    use std::collections::BTreeMap;
+    let mut map: BTreeMap<i32, f32> = BTreeMap::new();
+    for p in base {
+        map.insert(p.index, p.value);
+    }
+    for p in delta {
+        map.insert(p.index, p.value);
+    }
+    map.into_iter()
+        .map(|(index, value)| ParamChange { index, value })
+        .collect()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexRemapEntry {
@@ -140,6 +154,8 @@ pub async fn generate_tone(
     target_fx_guid: String,
     prompt: String,
     preview_only: bool,
+    mode: MergeMode,
+    base_params: Option<Vec<ParamChange>>,
 ) -> Result<PreviewResult, String> {
     let model = std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-pro".to_string());
 
@@ -188,24 +204,36 @@ pub async fn generate_tone(
         .clone();
 
     let mut params = sanitize_params(tone.params).map_err(|e| e.to_string())?;
-    params = apply_replace_active_cleaner(MergeMode::ReplaceActive, params);
+    if matches!(mode, MergeMode::ReplaceActive) {
+        params = apply_replace_active_cleaner(MergeMode::ReplaceActive, params);
+    }
     params = apply_index_remap(params, &index_remap);
     params = sanitize_params(params).map_err(|e| e.to_string())?;
 
-    let old = state
-        .param_cache
-        .lock()
-        .map_err(|_| "cache lock poisoned")?
-        .get(&target_fx_guid)
-        .cloned()
-        .unwrap_or_default();
-    let d = diff_params(&old, &params, &index_remap);
+    let old = if let Some(v) = base_params {
+        v
+    } else {
+        state
+            .param_cache
+            .lock()
+            .map_err(|_| "cache lock poisoned".to_string())?
+            .get(&target_fx_guid)
+            .cloned()
+            .unwrap_or_default()
+    };
+
+    let merged = if matches!(mode, MergeMode::Merge) {
+        merge_params(&old, &params)
+    } else {
+        params.clone()
+    };
+    let d = diff_params(&old, &merged, &index_remap);
 
     if !preview_only {
         apply_tone_inner(
             &state,
             &target_fx_guid,
-            MergeMode::ReplaceActive,
+            mode,
             params.clone(),
             format!("gen-{}", chrono_nanos()),
         )
@@ -370,10 +398,25 @@ async fn apply_tone_inner(
         .map_err(|_| "index remap lock poisoned".to_string())?
         .clone();
 
-    let mut params = sanitize_params(params).map_err(|e| e.to_string())?;
+    let mut params = sanitize_params(params).map_err(|e| e.to_string())?;       
     params = apply_replace_active_cleaner(mode, params);
     params = apply_index_remap(params, &index_remap);
     params = sanitize_params(params).map_err(|e| e.to_string())?;
+
+    // Cache the full effective preset so later diffs are stable (merge should accumulate).
+    {
+        let mut cache = state
+            .param_cache
+            .lock()
+            .map_err(|_| "cache lock poisoned".to_string())?;
+        let prev = cache.get(target_fx_guid).cloned().unwrap_or_default();
+        let next = if matches!(mode, MergeMode::Merge) {
+            merge_params(&prev, &params)
+        } else {
+            params.clone()
+        };
+        cache.insert(target_fx_guid.to_string(), next);
+    }
 
     let cmd = ClientCommand::SetTone {
         session_token: String::new(),
@@ -387,12 +430,6 @@ async fn apply_tone_inner(
         .send(UiCommand::SendToDll(cmd))
         .await
         .map_err(|_| "ws actor unavailable".to_string())?;
-
-    state
-        .param_cache
-        .lock()
-        .map_err(|_| "cache lock poisoned")?
-        .insert(target_fx_guid.to_string(), params);
 
     Ok(())
 }
