@@ -97,5 +97,6 @@ OUTPUT FORMAT (JSON):
   - Mic IR (92/99): "Dynamic 57", "Dynamic 421", "Condenser 414", "Ribbon 121", etc (use labels from ENUM_OPTIONS_JSON when present)
   - Graphic EQ bands (54..82): use dB like "+3.2 dB" / "-2 dB" (0 dB is the neutral/flat point)
   - Mix controls: "25%" is allowed
+  - Gate Amount (2): prefer percent like "20%" / "35%" (if PARAM_FORMAT_SAMPLES_JSON indicates dB, you may use "-30 dB" style too)
   Keep toggles numeric ("0" or "1") and keep values concise (no prose inside the value field).
 "#;
