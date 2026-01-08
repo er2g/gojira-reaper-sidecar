@@ -179,6 +179,18 @@ fn default_formatted_value_triplets() -> std::collections::HashMap<i32, (String,
     out.insert(116, ("50".to_string(), "375".to_string(), "700".to_string())); // REV Low Cut (Hz)
     out.insert(117, ("1000".to_string(), "5500".to_string(), "10000".to_string())); // REV High Cut (Hz)
 
+    // Amp knobs: most Archetype Gojira builds expose these as a 0..10 scale in
+    // TrackFX_FormatParamValue. This enables "knob scale" values even when no
+    // REAPER handshake meta is available (e.g. CLI --no-ws).
+    let knob = ("0.0".to_string(), "5.0".to_string(), "10.0".to_string());
+    for idx in [
+        30, 32, 33, 34, 35, // Clean (skip 31 Bright: typically behaves like a switch)
+        36, 37, 38, 39, 40, 41, 42, 43, // Rust
+        44, 45, 46, 47, 48, 49, 50, 51, // Hot
+    ] {
+        out.insert(idx, knob.clone());
+    }
+
     out
 }
 
@@ -376,6 +388,11 @@ fn resolve_from_enum_label(
     let s = value.as_str()?.trim();
     let s = normalize_ws(s);
     let opts = enums.get(&index)?;
+    let find = |label: &str| -> Option<f32> {
+        opts.iter()
+            .find(|o| o.label.trim().eq_ignore_ascii_case(label))
+            .map(|o| o.value)
+    };
     // Exact label match (case-insensitive)
     if let Some(opt) = opts.iter().find(|o| eq_ignore_case(&o.label, &s)) {
         return Some(opt.value);
@@ -400,6 +417,48 @@ fn resolve_from_enum_label(
         }
         if l == "leadcab" {
             return opts.iter().find(|o| o.label.eq_ignore_ascii_case("Cab 3")).map(|o| o.value);
+        }
+    }
+
+    // Reverb mode is a common hallucination point; map common synonyms to the
+    // plugin's actual options when possible.
+    if index == param_map::pedals::reverb::MODE {
+        let l = s.to_ascii_lowercase();
+        if ["room", "hall", "plate", "spring", "normal", "standard"].contains(&l.as_str()) {
+            return find("Reverb");
+        }
+        if l.contains("shimmer") {
+            return find("Shimmer");
+        }
+    }
+
+    // Mic IR naming: accept common studio shorthands ("SM57", "R121", etc.).
+    if index == param_map::cab::mic1::IR_SEL || index == param_map::cab::mic2::IR_SEL {
+        let l0 = s.to_ascii_lowercase();
+        let l: String = l0
+            .chars()
+            .filter(|c| !matches!(c, ' ' | '-' | '_'))
+            .collect();
+        if l == "sm57" || l == "57" || l.contains("shure") && l.contains("57") {
+            return find("Dynamic 57");
+        }
+        if l == "md421" || l == "421" || l.contains("421") {
+            return find("Dynamic 421");
+        }
+        if l == "c414" || l == "414" || l.contains("414") {
+            return find("Condenser 414");
+        }
+        if l == "km184" || l == "184" || l.contains("184") {
+            return find("Condenser 184");
+        }
+        if l == "m160" || l.contains("160") {
+            return find("Ribbon 160");
+        }
+        if l == "r121" || l.contains("121") {
+            return find("Ribbon 121");
+        }
+        if l.contains("custom") || l.contains("ir") && l.contains("custom") {
+            return find("Custom IR");
         }
     }
     None

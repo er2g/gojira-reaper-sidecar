@@ -1,4 +1,5 @@
 use crate::modules::cleaner::{apply_replace_active_cleaner, sanitize_params};
+use crate::modules::param_map;
 use crate::modules::protocol::MergeMode;
 use crate::modules::protocol::ParamChange;
 use crate::modules::system_prompt::SYSTEM_PROMPT;
@@ -205,24 +206,56 @@ fn get_param(params: &[ParamChange], index: i32) -> Option<f32> {
 
 fn apply_prompt_autofixes(prompt: &str, params: &mut Vec<ParamChange>) {
     let plow = prompt.to_ascii_lowercase();
-    let enums = match extract_enum_options(prompt) {
-        Some(e) => e,
-        None => return,
-    };
+
+    // If delay/reverb are used, ensure both the module Active toggle and a sensible Mix exist.
+    // This removes a common failure mode where the model sets time/feedback but forgets Dry/Wet.
+    let dly_active = get_param(params, param_map::pedals::delay::ACTIVE).unwrap_or(0.0) >= 0.5;
+    let dly_touched = [param_map::pedals::delay::MIX, param_map::pedals::delay::FEEDBACK, param_map::pedals::delay::TIME]
+        .into_iter()
+        .any(|i| get_param(params, i).is_some());
+    if dly_active || dly_touched {
+        upsert_param(params, param_map::pedals::delay::ACTIVE, 1.0);
+        if get_param(params, param_map::pedals::delay::MIX).is_none() {
+            upsert_param(params, param_map::pedals::delay::MIX, 0.25);
+        }
+    }
+
+    let rev_active = get_param(params, param_map::pedals::reverb::ACTIVE).unwrap_or(0.0) >= 0.5;
+    let rev_touched = [
+        param_map::pedals::reverb::MIX,
+        param_map::pedals::reverb::TIME,
+        param_map::pedals::reverb::LOW_CUT,
+        param_map::pedals::reverb::HIGH_CUT,
+        param_map::pedals::reverb::MODE,
+    ]
+    .into_iter()
+    .any(|i| get_param(params, i).is_some());
+    if rev_active || rev_touched {
+        upsert_param(params, param_map::pedals::reverb::ACTIVE, 1.0);
+        if get_param(params, param_map::pedals::reverb::MIX).is_none() {
+            upsert_param(params, param_map::pedals::reverb::MIX, 0.15);
+        }
+    }
 
     // If the user asked for shimmer and reverb is on, ensure we set REV Mode (113) to Shimmer.
     // (The model sometimes forgets to set 113 even when using reverb.)
     if plow.contains("shimmer") {
-        let reverb_on = get_param(params, 112).unwrap_or(0.0) >= 0.5;
+        let reverb_on = get_param(params, param_map::pedals::reverb::ACTIVE).unwrap_or(0.0) >= 0.5;
         if reverb_on {
-            if let Some(opts) = enums.get(&113) {
-                if let Some(sh) = opts
-                    .iter()
-                    .find(|o| o.label.trim().eq_ignore_ascii_case("shimmer"))
-                {
-                    upsert_param(params, 113, sh.value);
+            // Try to use prompt-provided enum meta, else fall back to observed stable values.
+            if let Some(enums) = extract_enum_options(prompt) {
+                if let Some(opts) = enums.get(&param_map::pedals::reverb::MODE) {
+                    if let Some(sh) = opts
+                        .iter()
+                        .find(|o| o.label.trim().eq_ignore_ascii_case("shimmer"))
+                    {
+                        upsert_param(params, param_map::pedals::reverb::MODE, sh.value);
+                        return;
+                    }
                 }
             }
+            // Default observed Shimmer value in current plugin builds.
+            upsert_param(params, param_map::pedals::reverb::MODE, 0.751_953_1);
         }
     }
 }
@@ -1128,11 +1161,12 @@ fn gcloud_print_access_token() -> Result<String, GeminiError> {
         }
     }
 
-    // Prefer ADC tokens (they can be minted with explicit scopes via:
+    // Prefer the currently active gcloud user token (fast, no metadata server probing).
+    // Fall back to ADC tokens (they can be minted with explicit scopes via:
     // `gcloud auth application-default login --scopes=...`).
     let candidates: [&[&str]; 2] = [
-        &["auth", "application-default", "print-access-token"],
         &["auth", "print-access-token"],
+        &["auth", "application-default", "print-access-token"],
     ];
 
     let mut last_err: Option<String> = None;

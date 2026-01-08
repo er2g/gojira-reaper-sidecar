@@ -57,6 +57,13 @@ def infer_prompt_spec(prompt: str) -> PromptSpec:
         )
     )
 
+    # If the prompt mentions the effect at all (and didn't explicitly forbid it),
+    # treat it as allowed for QA purposes.
+    if not forbid_delay and "delay" in plow:
+        allow_delay = True
+    if not forbid_reverb and "reverb" in plow:
+        allow_reverb = True
+
     # If prompt doesn't mention the effect at all, default to "not allowed" for QA checks.
     # This is conservative and matches most tone prompts in this repo.
     if not forbid_delay and not allow_delay and "delay" not in plow:
@@ -302,6 +309,16 @@ def detect_logic_flags(stem: str, spec: PromptSpec, item: ParsedLog) -> List[str
     if (86 in idxs or 93 in idxs) and not is_on(first_val(model_map, 83)):
         flags.append("Cab active toggles set (86/93) but Cab Section Active (83) missing/off")
 
+    # Gain staging sanity: mic levels at +dB can clip quickly.
+    # Gojira cab mic level controls (89/96) typically map roughly -24..+24 dB (linear).
+    for idx, label in [(89, "Cab 1 Level"), (96, "Cab 2 Level")]:
+        v = first_val(model_map, idx)
+        if v is None:
+            continue
+        db = -24.0 + float(v) * 48.0
+        if db >= 6.0:
+            flags.append(f"{label} ({idx}) is very hot (~{db:.1f} dB) and may clip (typical around -12 dB)")
+
     # Prompt expectations
     if is_on(first_val(model_map, 101)) and not spec.allow_delay:
         flags.append("Delay is ON (101) but prompt says no delay")
@@ -326,12 +343,6 @@ def detect_logic_flags(stem: str, spec: PromptSpec, item: ParsedLog) -> List[str
     if "no reverb" in rlow:
         if is_on(first_val(model_map, 112)):
             flags.append('Reasoning says "no reverb" but REV Active (112) is ON')
-
-    # Special: verify that delay mix (105) and reverb mix (114) are used when those effects are on
-    if is_on(first_val(model_map, 101)) and 105 not in idxs:
-        flags.append("Delay is ON (101) but DLY Dry/Wet (105) not set by model")
-    if is_on(first_val(model_map, 112)) and 114 not in idxs:
-        flags.append("Reverb is ON (112) but REV Dry/Wet (114) not set by model")
 
     return flags
 

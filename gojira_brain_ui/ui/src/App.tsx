@@ -1,6 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { Store } from "@tauri-apps/plugin-store";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ChatPanel from "./components/ChatPanel";
 import InspectorPanel from "./components/InspectorPanel";
@@ -9,8 +6,15 @@ import StatusBar from "./components/StatusBar";
 import type { AckMessage, GojiraInstance, HandshakePayload, PreviewResult, StatusEvent } from "./types";
 import { buildPromptFromChat, initialWorkspace, mergeParamLists, nowId, type ChatMessage, type HistoryEntry, type PickupPosition, type SavedSnapshot, type WorkspaceState } from "./workspace";
 import { summarizeAppliedDelta } from "./workspace";
+import { getPrefsStore, type PrefsStore } from "./platform/prefsStore";
+import { isTauriRuntime, tauriInvoke as invoke, tauriListen as listen } from "./platform/tauri";
 
-const store = new Store("prefs.bin");
+const store: PrefsStore = {
+  get: async <T,>(key: string) => (await getPrefsStore()).get<T>(key),
+  set: async <T,>(key: string, value: T) => (await getPrefsStore()).set<T>(key, value),
+  delete: async (key: string) => (await getPrefsStore()).delete(key),
+  save: async () => (await getPrefsStore()).save(),
+};
 
 export default function App() {
   const [status, setStatus] = useState<StatusEvent>({ status: "connecting" });
@@ -59,6 +63,8 @@ export default function App() {
   useEffect(() => {
     workspaceRef.current = workspace;
   }, [workspace]);
+
+  const storeRef = useRef<PrefsStore | null>(null);
 
   const pendingApplyIdRef = useRef<string | null>(null);
   const [pendingApplyCommandId, setPendingApplyCommandId] = useState<string | null>(null);
@@ -126,7 +132,11 @@ export default function App() {
     let unlistenFns: Array<() => void> = [];
 
     (async () => {
-      unlistenFns.push(await listen<StatusEvent>("reaper://status", (e) => setStatus(e.payload)));
+      const tauri = isTauriRuntime();
+      if (!tauri) setStatus({ status: "disconnected", retry_in: 0 });
+
+      if (tauri) {
+        unlistenFns.push(await listen<StatusEvent>("reaper://status", (e) => setStatus(e.payload)));
 
       unlistenFns.push(
         await listen<HandshakePayload>("reaper://handshake", async (e) => {
@@ -178,7 +188,8 @@ export default function App() {
         }),
       );
 
-      await invoke("connect_ws");
+        await invoke("connect_ws");
+      }
 
       const pNeck = (await store.get<string>("pickup_neck_v1")) ?? "";
       const pMiddle = (await store.get<string>("pickup_middle_v1")) ?? "";
@@ -203,9 +214,11 @@ export default function App() {
         }
       }
       setIndexRemap(normalized);
-      await invoke("set_index_remap", {
-        entries: Object.entries(normalized).map(([from, to]) => ({ from: Number(from), to: Number(to) })),
-      });
+      if (tauri) {
+        await invoke("set_index_remap", {
+          entries: Object.entries(normalized).map(([from, to]) => ({ from: Number(from), to: Number(to) })),
+        });
+      }
     })();
 
     return () => {
@@ -222,9 +235,11 @@ export default function App() {
       }
       await store.set("index_remap_v1", toStore);
       await store.save();
-      await invoke("set_index_remap", {
-        entries: Object.entries(indexRemap).map(([from, to]) => ({ from: Number(from), to: Number(to) })),
-      });
+      if (isTauriRuntime()) {
+        await invoke("set_index_remap", {
+          entries: Object.entries(indexRemap).map(([from, to]) => ({ from: Number(from), to: Number(to) })),
+        });
+      }
     })();
   }, [indexRemap]);
 
@@ -255,7 +270,11 @@ export default function App() {
   }, [pickupNeck, pickupMiddle, pickupBridge, pickupActive]);
 
   async function unlockVault() {
-    await invoke("set_vault_passphrase", { passphrase: vaultPassphrase });  
+    if (!isTauriRuntime()) {
+      setApiKeyPresent(null);
+      return;
+    }
+    await invoke("set_vault_passphrase", { passphrase: vaultPassphrase });
     try {
       const ok = await invoke<boolean>("has_api_key");
       setApiKeyPresent(ok);
@@ -265,12 +284,14 @@ export default function App() {
   }
 
   async function saveKey() {
+    if (!isTauriRuntime()) return;
     await invoke("save_api_key", { apiKey });
     setApiKey("");
     setApiKeyPresent(true);
   }
 
   async function clearKey() {
+    if (!isTauriRuntime()) return;
     await invoke("clear_api_key");
     setApiKeyPresent(false);
   }

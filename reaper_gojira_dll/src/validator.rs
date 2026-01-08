@@ -102,13 +102,13 @@ pub fn probe_param_meta(
     let enable_samples = std::env::var("GOJIRA_SEND_PARAM_SAMPLES")
         .ok()
         .map(|s| s.trim().eq_ignore_ascii_case("1") || s.trim().eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+        .unwrap_or(true);
 
     if enable_samples {
         let steps = std::env::var("GOJIRA_PARAM_SAMPLE_STEPS")
             .ok()
             .and_then(|s| s.trim().parse::<usize>().ok())
-            .unwrap_or(5)
+            .unwrap_or(11)
             .clamp(3, 201);
 
         let mode = std::env::var("GOJIRA_PARAM_SAMPLE_MODE")
@@ -124,11 +124,12 @@ pub fn probe_param_meta(
         } else {
             // "tone" mode: keep it reasonably small but useful for conversions.
             let mut v: Vec<i32> = Vec::new();
+            v.extend([0, 1]); // input/output gain
             v.push(2); // gate
             v.push(29); // amp selector
             v.extend(30..=51); // amp knobs
             v.extend(54..=82); // EQ bands
-            v.extend([83, 84, 85, 89, 92, 96, 99]); // cab selectors (+ mic levels)
+            v.extend([83, 84, 85, 87, 88, 89, 92, 94, 95, 96, 99]); // cab selectors (+ mic pos/dist/levels)
             v.extend([101, 105, 106, 108]); // delay
             v.extend([112, 113, 114, 115, 116, 117]); // reverb
             v.sort_unstable();

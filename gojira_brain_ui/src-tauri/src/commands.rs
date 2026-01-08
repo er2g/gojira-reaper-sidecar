@@ -327,13 +327,14 @@ fn augment_prompt_with_param_meta(state: &AppState, prompt: &str) -> String {
     if !samples.is_empty() {
         let mut sample_obj: HashMap<i32, Vec<(f32, String)>> = HashMap::new();
         let mut include: Vec<i32> = Vec::new();
+        include.extend([0, 1]); // input/output gain
         include.push(2); // Gate
         include.extend(54..=82); // Graphic EQ bands
         include.extend([29, 30, 31, 32, 33, 34, 35]); // Clean amp
         include.extend(36..=43); // Rust amp
         include.extend(44..=51); // Hot amp
         include.extend([101, 105, 106, 108, 112, 113, 114, 115, 116, 117]); // Time FX
-        include.extend([83, 84, 85, 89, 92, 96, 99]); // Cab selectors (+ mic levels)
+        include.extend([83, 84, 85, 87, 88, 89, 92, 94, 95, 96, 99]); // Cab selectors (+ mic pos/dist/levels)
 
         include.sort_unstable();
         include.dedup();

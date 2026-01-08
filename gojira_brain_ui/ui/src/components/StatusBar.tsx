@@ -1,6 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
 import React from "react";
 import type { StatusEvent } from "../types";
+import { isTauriRuntime, tauriInvoke as invoke } from "../platform/tauri";
 
 const dotColor: Record<StatusEvent["status"], string> = {
   disconnected: "#777",
@@ -32,8 +32,12 @@ export default function StatusBar({ status }: { status: StatusEvent }) {
       <div className="statusRight">
         <button
           className="btn"
-          onClick={() => invoke("connect_ws")}
+          onClick={() => {
+            if (!isTauriRuntime()) return;
+            void invoke("connect_ws");
+          }}
           type="button"
+          disabled={!isTauriRuntime()}
         >
           Reconnect Now
         </button>
