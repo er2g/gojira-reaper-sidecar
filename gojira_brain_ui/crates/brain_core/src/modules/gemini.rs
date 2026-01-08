@@ -143,6 +143,21 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     out
 }
 
+fn http_timeout_for_model(model: &str) -> Duration {
+    let env = std::env::var("GEMINI_HTTP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok());
+
+    let default_secs = if model.to_ascii_lowercase().contains("pro") {
+        120
+    } else {
+        60
+    };
+
+    let secs = env.unwrap_or(default_secs).clamp(15, 300);
+    Duration::from_secs(secs)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct EnumOption {
     value: f32,
@@ -591,7 +606,7 @@ pub async fn generate_tone_aistudio(
     req: ToneRequest,
 ) -> Result<ToneResponse, GeminiError> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(http_timeout_for_model(model))
         .build()?;
 
     let url = format!(
@@ -692,7 +707,7 @@ async fn generate_text_aistudio(
     full_prompt: &str,
 ) -> Result<String, GeminiError> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(http_timeout_for_model(model))
         .build()?;
 
     let url = format!(
@@ -753,7 +768,7 @@ async fn generate_tone_google_oauth(
     };
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(http_timeout_for_model(model))
         .build()?;
 
     let url = format!(
@@ -847,7 +862,7 @@ async fn generate_text_google_oauth(model: &str, full_prompt: &str) -> Result<St
     };
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(http_timeout_for_model(model))
         .build()?;
 
     let url = format!(
@@ -912,7 +927,7 @@ async fn generate_tone_vertex(model: &str, req: ToneRequest) -> Result<ToneRespo
     };
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(http_timeout_for_model(model))
         .build()?;
 
     let full_prompt = format!("{SYSTEM_PROMPT}\n\nUSER:\n{}", req.user_prompt);
@@ -1041,7 +1056,7 @@ async fn generate_text_vertex(model: &str, full_prompt: &str) -> Result<String, 
     };
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(http_timeout_for_model(model))
         .build()?;
 
     let payload = json!({
