@@ -1,24 +1,23 @@
 use crate::protocol::{ClientCommand, ErrorCode, InboundMsg, OutboundMsg, ServerMessage};
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use ws::{CloseCode, Handler, Handshake, Message, Result as WsResult, Sender as WsSender};
+use std::time::Duration;
+use tungstenite::protocol::Message;
 
 const WS_ADDR: &str = "127.0.0.1:9001";
 
-#[derive(Clone)]
 struct ActiveClient {
-    out: WsSender,
+    ws: tungstenite::WebSocket<TcpStream>,
     session_token: String,
     socket_addr: SocketAddr,
 }
 
 pub struct NetworkThread {
-    server_sender: WsSender,
     shutdown: Arc<AtomicBool>,
     join_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -26,61 +25,18 @@ pub struct NetworkThread {
 impl NetworkThread {
     pub fn spawn(in_tx: Sender<InboundMsg>, out_rx: Receiver<OutboundMsg>) -> Result<Self, String> {
         let shutdown = Arc::new(AtomicBool::new(false));
-        let active: Arc<Mutex<Option<ActiveClient>>> = Arc::new(Mutex::new(None));
+        let shutdown_for_thread = Arc::clone(&shutdown);
 
-        let active_for_out = Arc::clone(&active);
-        let shutdown_for_out = Arc::clone(&shutdown);
-        let pump_handle =
-            thread::spawn(move || outbound_pump(out_rx, active_for_out, shutdown_for_out));
-
-        let active_for_server = Arc::clone(&active);
-        let in_tx_for_server = in_tx.clone();
-        let shutdown_for_server = Arc::clone(&shutdown);
-
-        let (server_sender_tx, server_sender_rx) = std::sync::mpsc::channel();
-        let server_handle = thread::spawn(move || {
-            let server = ws::WebSocket::new(move |out| ServerConn {
-                out,
-                in_tx: in_tx_for_server.clone(),
-                active: Arc::clone(&active_for_server),
-                shutdown: Arc::clone(&shutdown_for_server),
-            });
-
-            let server = match server {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("ws server init failed: {e}");
-                    return;
-                }
-            };
-            let broadcaster = server.broadcaster();
-            let _ = server_sender_tx.send(broadcaster.clone());
-
-            if let Err(e) = server.listen(WS_ADDR) {
-                eprintln!("ws listen failed: {e}");
-            }
-        });
-
-        let server_sender = server_sender_rx
-            .recv()
-            .map_err(|_| "ws broadcaster unavailable".to_string())?;
-
-        // Keep both threads alive under a single handle by joining them on drop.
-        let join_handle = Some(thread::spawn(move || {
-            let _ = server_handle.join();
-            let _ = pump_handle.join();
-        }));
+        let join_handle = thread::spawn(move || run_server(in_tx, out_rx, shutdown_for_thread));
 
         Ok(Self {
-            server_sender,
             shutdown,
-            join_handle: Mutex::new(join_handle),
+            join_handle: Mutex::new(Some(join_handle)),
         })
     }
 
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::Relaxed);
-        let _ = self.server_sender.shutdown();
         if let Ok(mut h) = self.join_handle.lock() {
             if let Some(h) = h.take() {
                 let _ = h.join();
@@ -95,153 +51,196 @@ impl Drop for NetworkThread {
     }
 }
 
-fn outbound_pump(
-    out_rx: Receiver<OutboundMsg>,
-    active: Arc<Mutex<Option<ActiveClient>>>,
-    shutdown: Arc<AtomicBool>,
-) {
+fn run_server(in_tx: Sender<InboundMsg>, out_rx: Receiver<OutboundMsg>, shutdown: Arc<AtomicBool>) {
+    let listener = match TcpListener::bind(WS_ADDR) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("ws bind failed on {WS_ADDR}: {e}");
+            return;
+        }
+    };
+    let _ = listener.set_nonblocking(true);
+
+    let mut active: Option<ActiveClient> = None;
+
     while !shutdown.load(Ordering::Relaxed) {
-        let msg = match out_rx.recv_timeout(std::time::Duration::from_millis(50)) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        let OutboundMsg::Send { msg } = msg;
-        let out = active.lock().ok().and_then(|a| a.as_ref().map(|c| c.out.clone()));
-        let Some(out) = out else { continue };
+        // Accept new connections (single-client policy).
+        loop {
+            match listener.accept() {
+                Ok((stream, socket_addr)) => {
+                    let _ = stream.set_nodelay(true);
+                    let _ = stream.set_read_timeout(Some(Duration::from_millis(30)));
+                    let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
 
-        let payload = match serde_json::to_string(&msg) {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("failed to serialize outbound msg: {e}");
-                continue;
-            }
-        };
-        let _ = out.send(payload);
-    }
-}
+                    let ws = match tungstenite::accept(stream) {
+                        Ok(ws) => ws,
+                        Err(e) => {
+                            eprintln!("ws handshake failed: {e}");
+                            continue;
+                        }
+                    };
 
-struct ServerConn {
-    out: WsSender,
-    in_tx: Sender<InboundMsg>,
-    active: Arc<Mutex<Option<ActiveClient>>>,
-    shutdown: Arc<AtomicBool>,
-}
+                    let session_token: String = thread_rng()
+                        .sample_iter(&Alphanumeric)
+                        .take(32)
+                        .map(char::from)
+                        .collect();
 
-impl Handler for ServerConn {
-    fn on_open(&mut self, shake: Handshake) -> WsResult<()> {
-        if self.shutdown.load(Ordering::Relaxed) {
-            let _ = self.out.close(CloseCode::Normal);
-            return Ok(());
-        }
-        let socket_addr = shake
-            .peer_addr
-            .unwrap_or_else(|| SocketAddr::from(([0, 0, 0, 0], 0)));
-        let session_token: String = thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(32)
-            .map(char::from)
-            .collect();
+                    // Close previous active client.
+                    if let Some(mut prev) = active.take() {
+                        let _ = prev.ws.close(None);
+                        let _ = in_tx.try_send(InboundMsg::ClientDisconnected);
+                    }
 
-        if let Ok(mut guard) = self.active.lock() {
-            if let Some(prev) = guard.take() {
-                let _ = prev.out.close(CloseCode::Away);
-            }
-            *guard = Some(ActiveClient {
-                out: self.out.clone(),
-                session_token: session_token.clone(),
-                socket_addr,
-            });
-        }
+                    // Notify main loop.
+                    if in_tx
+                        .try_send(InboundMsg::ClientConnected {
+                            socket_addr,
+                            session_token: session_token.clone(),
+                        })
+                        .is_err()
+                    {
+                        // Busy: try to tell the client then drop the socket.
+                        let mut ws = ws;
+                        let _ = send_server_message(
+                            &mut ws,
+                            &ServerMessage::Error {
+                                msg: "server busy".to_string(),
+                                code: ErrorCode::Busy,
+                            },
+                        );
+                        let _ = ws.close(None);
+                        continue;
+                    }
 
-        if self
-            .in_tx
-            .try_send(InboundMsg::ClientConnected {
-                socket_addr,
-                session_token,
-            })
-            .is_err()
-        {
-            let payload = json_payload(&ServerMessage::Error {
-                msg: "server busy".to_string(),
-                code: ErrorCode::Busy,
-            })?;
-            let _ = self.out.send(payload);
-            let _ = self.out.close(CloseCode::Again);
-        }
-
-        Ok(())
-    }
-
-    fn on_close(&mut self, _: CloseCode, _: &str) {
-        if let Ok(mut guard) = self.active.lock() {
-            if let Some(active) = guard.as_ref() {
-                if active.out.token() == self.out.token() {
-                    *guard = None;
-                    let _ = self.in_tx.try_send(InboundMsg::ClientDisconnected);
+                    active = Some(ActiveClient {
+                        ws,
+                        session_token,
+                        socket_addr,
+                    });
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(e) => {
+                    eprintln!("ws accept failed: {e}");
+                    break;
                 }
             }
         }
-    }
 
-    fn on_message(&mut self, msg: Message) -> WsResult<()> {
-        let socket_addr = self.peer_addr().ok();
-        let text = msg.as_text()?;
-
-        let cmd: ClientCommand = match serde_json::from_str(text) {
-            Ok(c) => c,
-            Err(_) => {
-                return self.send_error("invalid json", ErrorCode::InvalidCommand);
+        // Outbound: drain queued messages.
+        if let Some(client) = active.as_mut() {
+            loop {
+                match out_rx.try_recv() {
+                    Ok(OutboundMsg::Send { msg }) => {
+                        if send_server_message(&mut client.ws, &msg).is_err() {
+                            let _ = client.ws.close(None);
+                            active = None;
+                            let _ = in_tx.try_send(InboundMsg::ClientDisconnected);
+                            break;
+                        }
+                    }
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => return,
+                }
             }
-        };
-
-        let active_token = self
-            .active
-            .lock()
-            .ok()
-            .and_then(|a| a.as_ref().map(|c| c.session_token.clone()));
-
-        if active_token.as_deref() != Some(cmd.session_token()) {
-            return self.send_error("unauthorized", ErrorCode::Unauthorized);
         }
 
-        let push = self.in_tx.try_send(InboundMsg::Command { cmd: cmd.clone() });
-        if push.is_err() {
-            // Flood policy:
-            // - SetTone => reject BUSY
-            // - RefreshInstances => coalesce/drop
-            if matches!(cmd, ClientCommand::RefreshInstances { .. }) {
-                return Ok(());
+        // Inbound: read at most one message per loop (timeouts keep the loop moving).
+        if let Some(client) = active.as_mut() {
+            match client.ws.read() {
+                Ok(msg) => {
+                    if handle_inbound(&in_tx, client, msg).is_err() {
+                        let _ = client.ws.close(None);
+                        active = None;
+                        let _ = in_tx.try_send(InboundMsg::ClientDisconnected);
+                    }
+                }
+                Err(tungstenite::Error::Io(e))
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(tungstenite::Error::ConnectionClosed) => {
+                    active = None;
+                    let _ = in_tx.try_send(InboundMsg::ClientDisconnected);
+                }
+                Err(_) => {
+                    active = None;
+                    let _ = in_tx.try_send(InboundMsg::ClientDisconnected);
+                }
             }
-            let peer = socket_addr
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            eprintln!("inbound channel full; reject from {peer}");
-            return self.send_error("server busy", ErrorCode::Busy);
+        } else {
+            // If no active client, avoid busy-looping.
+            thread::sleep(Duration::from_millis(25));
         }
+    }
 
-        Ok(())
+    if let Some(mut client) = active {
+        let _ = client.ws.close(None);
     }
 }
 
-impl ServerConn {
-    fn peer_addr(&self) -> WsResult<SocketAddr> {
-        let guard = self.active.lock().map_err(|_| ws::Error::new(ws::ErrorKind::Internal, "lock poisoned"))?;
-        let Some(active) = guard.as_ref() else {
-            return Err(ws::Error::new(ws::ErrorKind::Internal, "no active client"));
-        };
-        Ok(active.socket_addr)
+fn handle_inbound(
+    in_tx: &Sender<InboundMsg>,
+    client: &mut ActiveClient,
+    msg: Message,
+) -> Result<(), ()> {
+    let text = match msg {
+        Message::Text(s) => s,
+        Message::Binary(_) => return Ok(()),
+        Message::Ping(payload) => {
+            let _ = client.ws.send(Message::Pong(payload));
+            return Ok(());
+        }
+        Message::Pong(_) => return Ok(()),
+        Message::Close(_) => return Err(()),
+        Message::Frame(_) => return Ok(()),
+    };
+
+    let cmd: ClientCommand = match serde_json::from_str(&text) {
+        Ok(c) => c,
+        Err(_) => {
+            let _ = send_server_message(
+                &mut client.ws,
+                &ServerMessage::Error {
+                    msg: "invalid json".to_string(),
+                    code: ErrorCode::InvalidCommand,
+                },
+            );
+            return Ok(());
+        }
+    };
+
+    if client.session_token != cmd.session_token() {
+        let _ = send_server_message(
+            &mut client.ws,
+            &ServerMessage::Error {
+                msg: "unauthorized".to_string(),
+                code: ErrorCode::Unauthorized,
+            },
+        );
+        return Ok(());
     }
 
-    fn send_error(&self, msg: &str, code: ErrorCode) -> WsResult<()> {
-        let payload = json_payload(&ServerMessage::Error {
-            msg: msg.to_string(),
-            code,
-        })?;
-        self.out.send(payload)
+    if in_tx.try_send(InboundMsg::Command { cmd: cmd.clone() }).is_err() {
+        if matches!(cmd, ClientCommand::RefreshInstances { .. }) {
+            return Ok(());
+        }
+        let _ = send_server_message(
+            &mut client.ws,
+            &ServerMessage::Error {
+                msg: "server busy".to_string(),
+                code: ErrorCode::Busy,
+            },
+        );
     }
+
+    Ok(())
 }
 
-fn json_payload(msg: &ServerMessage) -> WsResult<String> {
-    serde_json::to_string(msg)
-        .map_err(|e| ws::Error::new(ws::ErrorKind::Internal, e.to_string()))
+fn send_server_message(
+    ws: &mut tungstenite::WebSocket<TcpStream>,
+    msg: &ServerMessage,
+) -> Result<(), ()> {
+    let payload = serde_json::to_string(msg).map_err(|_| ())?;
+    ws.send(Message::Text(payload.into())).map_err(|_| ())
 }
+

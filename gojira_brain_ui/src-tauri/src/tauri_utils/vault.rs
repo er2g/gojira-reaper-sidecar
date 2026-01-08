@@ -37,7 +37,9 @@ pub fn load_api_key<R: tauri::Runtime>(
     let key = tauri_plugin_stronghold::kdf::KeyDerivation::argon2(passphrase, &paths.salt_path);
     let stronghold = tauri_plugin_stronghold::stronghold::Stronghold::new(paths.snapshot_path, key)?;
 
-    let client = stronghold.get_client("gojira".as_bytes().to_vec())?;
+    let client = stronghold
+        .get_client("gojira".as_bytes().to_vec())
+        .map_err(tauri_plugin_stronghold::stronghold::Error::from)?;
     let maybe = client
         .store()
         .get("gemini_api_key".as_bytes())
@@ -54,7 +56,9 @@ pub fn save_api_key<R: tauri::Runtime>(
     let key = tauri_plugin_stronghold::kdf::KeyDerivation::argon2(passphrase, &paths.salt_path);
     let stronghold = tauri_plugin_stronghold::stronghold::Stronghold::new(paths.snapshot_path, key)?;
 
-    let client = stronghold.get_client("gojira".as_bytes().to_vec())?;
+    let client = stronghold
+        .get_client("gojira".as_bytes().to_vec())
+        .map_err(tauri_plugin_stronghold::stronghold::Error::from)?;
     let secret = Zeroizing::new(api_key.as_bytes().to_vec());
     let _ = client
         .store()
@@ -76,7 +80,9 @@ pub fn clear_api_key<R: tauri::Runtime>(
     let key = tauri_plugin_stronghold::kdf::KeyDerivation::argon2(passphrase, &paths.salt_path);
     let stronghold = tauri_plugin_stronghold::stronghold::Stronghold::new(paths.snapshot_path, key)?;
 
-    let client = stronghold.get_client("gojira".as_bytes().to_vec())?;
+    let client = stronghold
+        .get_client("gojira".as_bytes().to_vec())
+        .map_err(tauri_plugin_stronghold::stronghold::Error::from)?;
     let _ = client
         .store()
         .delete("gemini_api_key".as_bytes())

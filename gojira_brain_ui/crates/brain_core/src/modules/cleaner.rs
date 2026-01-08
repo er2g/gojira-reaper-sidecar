@@ -65,6 +65,7 @@ const MODULES: &[ModuleDef] = &[
         params: &[
             param_map::pedals::delay::ACTIVE,
             param_map::pedals::delay::MIX,
+            param_map::pedals::delay::FEEDBACK,
             param_map::pedals::delay::TIME,
         ],
     },
@@ -72,24 +73,10 @@ const MODULES: &[ModuleDef] = &[
         bypass: &[param_map::pedals::reverb::ACTIVE],
         params: &[
             param_map::pedals::reverb::ACTIVE,
+            param_map::pedals::reverb::MIX,
             param_map::pedals::reverb::TIME,
             param_map::pedals::reverb::LOW_CUT,
             param_map::pedals::reverb::HIGH_CUT,
-        ],
-    },
-    ModuleDef {
-        bypass: &[param_map::cab::ACTIVE],
-        params: &[
-            param_map::cab::ACTIVE,
-            param_map::cab::TYPE_SELECTOR,
-            param_map::cab::mic1::POS,
-            param_map::cab::mic1::DIST,
-            param_map::cab::mic1::LEVEL,
-            param_map::cab::mic1::IR_SEL,
-            param_map::cab::mic2::POS,
-            param_map::cab::mic2::DIST,
-            param_map::cab::mic2::LEVEL,
-            param_map::cab::mic2::IR_SEL,
         ],
     },
 ];
@@ -133,6 +120,50 @@ pub fn apply_replace_active_cleaner(mode: MergeMode, params: Vec<ParamChange>) -
 
     let mut already_set: HashSet<i32> = params.iter().map(|p| p.index).collect();
     let mut out = params;
+
+    // Dependency inference: if the model adjusts a section's parameters, ensure the section toggle
+    // is present too. This doesn't override explicit user/model choices (only adds when missing).
+    fn ensure(out: &mut Vec<ParamChange>, already_set: &mut HashSet<i32>, index: i32, value: f32) {
+        if already_set.insert(index) {
+            out.push(ParamChange { index, value });
+        }
+    }
+
+    let touches_any = |v: &[ParamChange], start: i32, end: i32| {
+        v.iter().any(|p| (start..=end).contains(&p.index))
+    };
+
+    let has_any_eq = touches_any(&out, 53, 82);
+    let has_clean_eq = touches_any(&out, 54, 62) || already_set.contains(&53);
+    let has_rust_eq = touches_any(&out, 64, 72) || already_set.contains(&63);
+    let has_hot_eq = touches_any(&out, 74, 82) || already_set.contains(&73);
+
+    let has_any_cab = touches_any(&out, 84, 99);
+    let has_cab1 = touches_any(&out, 87, 92) || already_set.contains(&86);
+    let has_cab2 = touches_any(&out, 94, 99) || already_set.contains(&93);
+
+    if has_any_eq {
+        ensure(&mut out, &mut already_set, 52, 1.0);
+    }
+    if has_clean_eq {
+        ensure(&mut out, &mut already_set, 53, 1.0);
+    }
+    if has_rust_eq {
+        ensure(&mut out, &mut already_set, 63, 1.0);
+    }
+    if has_hot_eq {
+        ensure(&mut out, &mut already_set, 73, 1.0);
+    }
+
+    if has_any_cab {
+        ensure(&mut out, &mut already_set, 83, 1.0);
+    }
+    if has_cab1 {
+        ensure(&mut out, &mut already_set, 86, 1.0);
+    }
+    if has_cab2 {
+        ensure(&mut out, &mut already_set, 93, 1.0);
+    }
 
     for (i, module) in MODULES.iter().enumerate() {
         if touched_modules.contains(&i) {

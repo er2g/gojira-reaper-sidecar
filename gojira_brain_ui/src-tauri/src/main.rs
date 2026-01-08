@@ -8,6 +8,7 @@ fn main() {
     use crate::tauri_utils::app_state::{AppState, VaultState};
     use std::collections::HashMap;
     use std::sync::Mutex;
+    use tauri::Manager;
     use tokio::sync::mpsc;
 
     tauri::Builder::default()
@@ -28,6 +29,8 @@ fn main() {
             app.manage(AppState {
                 tx,
                 param_cache: Mutex::new(HashMap::new()),
+                param_enums: Mutex::new(HashMap::new()),
+                param_formats: Mutex::new(HashMap::new()),
                 vault: Mutex::new(VaultState::default()),
                 index_remap: Mutex::new(HashMap::new()),
             });

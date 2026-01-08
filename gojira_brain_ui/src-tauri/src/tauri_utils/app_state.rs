@@ -1,4 +1,4 @@
-use brain_core::protocol::{ClientCommand, ParamChange};
+use brain_core::protocol::{ClientCommand, ParamChange, ParamEnumOption, ParamFormatTriplet};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tokio::sync::mpsc;
@@ -6,6 +6,8 @@ use tokio::sync::mpsc;
 pub struct AppState {
     pub tx: mpsc::Sender<UiCommand>,
     pub param_cache: Mutex<HashMap<String, Vec<ParamChange>>>,
+    pub param_enums: Mutex<HashMap<i32, Vec<ParamEnumOption>>>,
+    pub param_formats: Mutex<HashMap<i32, ParamFormatTriplet>>,
     pub vault: Mutex<VaultState>,
     /// Index translation (canonical -> actual) for plugin version drift.
     pub index_remap: Mutex<HashMap<i32, i32>>,

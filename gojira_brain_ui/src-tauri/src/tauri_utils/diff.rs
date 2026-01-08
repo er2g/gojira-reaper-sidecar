@@ -56,6 +56,7 @@ fn label_for_index(index: i32, reverse_index_remap: &HashMap<i32, i32>) -> &'sta
         param_map::pedals::delay::MIX => "Delay: Mix",
         param_map::pedals::delay::TIME => "Delay: Time",
         param_map::pedals::reverb::ACTIVE => "Reverb: Active",
+        param_map::pedals::reverb::MIX => "Reverb: Mix",
         param_map::pedals::reverb::TIME => "Reverb: Time",
         param_map::pedals::reverb::LOW_CUT => "Reverb: Low Cut",
         param_map::pedals::reverb::HIGH_CUT => "Reverb: High Cut",

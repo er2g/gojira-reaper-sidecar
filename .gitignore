@@ -9,3 +9,13 @@ gojira_brain_ui/.tauri
 
 gojira_brain_ui/ui/node_modules
 gojira_brain_ui/ui/dist
+
+# Tauri build/codegen output
+gojira_brain_ui/src-tauri/gen
+
+# Local tone run logs / reports
+tone_runs*/
+
+# Local icon assets generated during packaging
+gojira_brain_ui/src-tauri/app-icon.png
+gojira_brain_ui/src-tauri/icons/

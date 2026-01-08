@@ -14,6 +14,8 @@ use crossbeam_channel::bounded;
 use reaper_low::raw::{HINSTANCE, reaper_plugin_info_t};
 use reaper_low::{Reaper, ReaperPluginContext};
 use std::error::Error;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -22,6 +24,21 @@ static REAPER: OnceLock<Reaper> = OnceLock::new();
 static MAIN_LOOP: OnceLock<Mutex<MainLoop>> = OnceLock::new();
 static NET_THREAD: OnceLock<NetworkThread> = OnceLock::new();
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
+fn log_line(msg: &str) {
+    let path = std::env::temp_dir().join("reaper_gojira_dll.log");
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{}", msg);
+        let _ = f.flush();
+    }
+}
+
+fn env_is_true(name: &str) -> bool {
+    matches!(
+        std::env::var(name).as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+    )
+}
 
 extern "C" fn timer_proc() {
     let _ = reaper_low::firewall(|| {
@@ -43,22 +60,45 @@ extern "C" fn timer_proc() {
 }
 
 fn init(context: &ReaperPluginContext) -> Result<(), Box<dyn Error>> {
+    log_line("init: start");
     let reaper = Reaper::load(context);
     let _ = REAPER.set(reaper);
+    log_line("init: reaper loaded");
+
+    if env_is_true("GOJIRA_DLL_DISABLE_ALL") {
+        log_line("init: GOJIRA_DLL_DISABLE_ALL=1 -> returning early");
+        return Ok(());
+    }
 
     let (in_tx, in_rx) = bounded(protocol::INBOUND_CAP);
     let (out_tx, out_rx) = bounded(protocol::OUTBOUND_CAP);
+    log_line("init: channels created");
 
-    let net = NetworkThread::spawn(in_tx, out_rx)?;
-    let _ = NET_THREAD.set(net);
+    if !env_is_true("GOJIRA_DLL_DISABLE_NET") {
+        log_line("init: spawning net thread");
+        let net = NetworkThread::spawn(in_tx, out_rx)?;
+        let _ = NET_THREAD.set(net);
+        log_line("init: net thread ready");
+    } else {
+        log_line("init: GOJIRA_DLL_DISABLE_NET=1 -> net thread skipped");
+    }
 
     let main_loop = MainLoop::new(in_rx, out_tx);
     let _ = MAIN_LOOP.set(Mutex::new(main_loop));
+    log_line("init: main loop set");
 
-    unsafe {
-        reaper.plugin_register(c_str!("timer").as_ptr(), timer_proc as *mut c_void);
+    if !env_is_true("GOJIRA_DLL_DISABLE_TIMER") {
+        unsafe {
+            // REAPER's C API uses `void*` for timer callback registration.
+            let timer_ptr = timer_proc as usize as *mut c_void;
+            reaper.plugin_register(c_str!("timer").as_ptr(), timer_ptr);
+        }
+        log_line("init: timer registered");
+    } else {
+        log_line("init: GOJIRA_DLL_DISABLE_TIMER=1 -> timer skipped");
     }
 
+    log_line("init: done");
     Ok(())
 }
 
@@ -72,7 +112,8 @@ fn shutdown() {
     if let Some(reaper) = REAPER.get().copied() {
         unsafe {
             // Prevent REAPER from calling into an unloaded DLL.
-            let _ = reaper.plugin_register(c_str!("-timer").as_ptr(), timer_proc as *mut c_void);
+            let timer_ptr = timer_proc as usize as *mut c_void;
+            let _ = reaper.plugin_register(c_str!("-timer").as_ptr(), timer_ptr);
         }
     }
 

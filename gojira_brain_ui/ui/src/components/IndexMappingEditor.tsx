@@ -4,9 +4,10 @@ export type IndexRemapEntry = { from: number; to: number; label: string };
 
 const knownRoles: Array<IndexRemapEntry> = [
   { label: "Delay: Active", from: 101, to: 101 },
-  { label: "Delay: Mix", from: 106, to: 106 },
+  { label: "Delay: Mix", from: 105, to: 105 },
   { label: "Delay: Time", from: 108, to: 108 },
   { label: "Reverb: Active", from: 112, to: 112 },
+  { label: "Reverb: Mix", from: 114, to: 114 },
   { label: "Reverb: Time", from: 115, to: 115 },
   { label: "Noise Gate", from: 2, to: 2 },
   { label: "Amp Type Selector", from: 29, to: 29 },
@@ -17,6 +18,12 @@ function parseConfirmedIndex(s: string | undefined): number | null {
   if (!s) return null;
   const m = s.match(/confirmed at (\d+)/i);
   return m ? Number(m[1]) : null;
+}
+
+function parseIndex(s: string | undefined): number | null {
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
 }
 
 export default function IndexMappingEditor({
@@ -34,7 +41,9 @@ export default function IndexMappingEditor({
   const suggestions = useMemo(() => {
     const delayMix = parseConfirmedIndex(validationReport?.delay_mix);
     const reverbMix = parseConfirmedIndex(validationReport?.reverb_mix);
-    return { delayMix, reverbMix };
+    const delayActive = parseIndex(validationReport?.delay_active_best_guess);
+    const reverbActive = parseIndex(validationReport?.reverb_active_best_guess);
+    return { delayMix, reverbMix, delayActive, reverbActive };
   }, [validationReport]);
 
   function set(from: number, to: number) {
@@ -75,7 +84,13 @@ export default function IndexMappingEditor({
         {knownRoles.map((r) => {
           const current = remap[r.from] ?? r.from;
           const suggestion =
-            r.from === 106 ? suggestions.delayMix : null; // only safe auto-map we know canonically
+            r.from === 101
+              ? suggestions.delayActive
+              : r.from === 112
+                ? suggestions.reverbActive
+                : r.from === 105
+                  ? suggestions.delayMix
+                  : null;
           return (
             <div key={r.from} className="diffRow">
               <div className="diffLabel">

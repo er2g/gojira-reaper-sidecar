@@ -15,6 +15,13 @@ pub trait ReaperApi {
     fn track_fx_name(&self, track: usize, fx_index: i32) -> String;
     fn track_fx_param_name(&self, track: usize, fx_index: i32, param_index: i32)
         -> Option<String>;
+    fn track_fx_format_param_value(
+        &self,
+        track: usize,
+        fx_index: i32,
+        param_index: i32,
+        value: f32,
+    ) -> Option<String>;
     fn track_fx_set_param(
         &self,
         track: usize,
@@ -135,6 +142,31 @@ impl ReaperApi for ReaperApiImpl {
                 Self::to_track_ptr(track),
                 fx_index,
                 param_index,
+                buf.as_mut_ptr(),
+                buf.len() as i32,
+            )
+        };
+        if ok {
+            Some(Self::c_buf_to_string(&buf))
+        } else {
+            None
+        }
+    }
+
+    fn track_fx_format_param_value(
+        &self,
+        track: usize,
+        fx_index: i32,
+        param_index: i32,
+        value: f32,
+    ) -> Option<String> {
+        let mut buf = [0 as c_char; 256];
+        let ok = unsafe {
+            self.reaper.TrackFX_FormatParamValue(
+                Self::to_track_ptr(track),
+                fx_index,
+                param_index,
+                value as f64,
                 buf.as_mut_ptr(),
                 buf.len() as i32,
             )

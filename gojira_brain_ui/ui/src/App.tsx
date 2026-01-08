@@ -1,10 +1,10 @@
-import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { Store } from "@tauri-apps/plugin-store";
 import React, { useEffect, useMemo, useState } from "react";
-import StatusBar from "./components/StatusBar";
 import DiffViewer from "./components/DiffViewer";
 import IndexMappingEditor from "./components/IndexMappingEditor";
+import StatusBar from "./components/StatusBar";
 import type { GojiraInstance, HandshakePayload, PreviewResult, StatusEvent } from "./types";
 
 const store = new Store("prefs.bin");
@@ -13,9 +13,13 @@ export default function App() {
   const [status, setStatus] = useState<StatusEvent>({ status: "connecting" });
   const [instances, setInstances] = useState<GojiraInstance[]>([]);
   const [selectedFxGuid, setSelectedFxGuid] = useState<string>("");
-  const [validationReport, setValidationReport] = useState<Record<string, string>>(
-    {},
-  );
+  const [validationReport, setValidationReport] = useState<Record<string, string>>({});
+  const [paramEnums, setParamEnums] = useState<
+    Record<string, Array<{ value: number; label: string }>>
+  >({});
+  const [paramFormats, setParamFormats] = useState<
+    Record<string, { min: string; mid: string; max: string }>
+  >({});
   const [indexRemap, setIndexRemap] = useState<Record<number, number>>({});
 
   const [vaultPassphrase, setVaultPassphrase] = useState("");
@@ -43,10 +47,12 @@ export default function App() {
         await listen<HandshakePayload>("reaper://handshake", async (e) => {
           setInstances(e.payload.instances);
           setValidationReport(e.payload.validation_report ?? {});
+          setParamEnums(e.payload.param_enums ?? {});
+          setParamFormats(e.payload.param_formats ?? {});
+
           const last = (await store.get<string>("last_target_fx_guid")) ?? "";
           const next =
-            (last &&
-              e.payload.instances.find((x) => x.fx_guid === last)?.fx_guid) ??
+            (last && e.payload.instances.find((x) => x.fx_guid === last)?.fx_guid) ??
             e.payload.instances[0]?.fx_guid ??
             "";
           setSelectedFxGuid(next);
@@ -62,8 +68,7 @@ export default function App() {
 
       await invoke("connect_ws");
 
-      const saved =
-        (await store.get<Record<string, number>>("index_remap_v1")) ?? {};
+      const saved = (await store.get<Record<string, number>>("index_remap_v1")) ?? {};
       const normalized: Record<number, number> = {};
       for (const [k, v] of Object.entries(saved)) {
         const from = Number(k);
@@ -171,14 +176,10 @@ export default function App() {
           <h2>Connection</h2>
           <div className="row">
             <label>Target Instance</label>
-            <select
-              value={selectedFxGuid}
-              onChange={(e) => setSelectedFxGuid(e.target.value)}
-            >
+            <select value={selectedFxGuid} onChange={(e) => setSelectedFxGuid(e.target.value)}>
               {instances.map((i) => (
                 <option key={i.fx_guid} value={i.fx_guid}>
-                  {i.track_name || "(Track)"} — {i.fx_name || "Archetype Gojira"} (
-                  {i.confidence})
+                  {i.track_name || "(Track)"} - {i.fx_name || "Archetype Gojira"} ({i.confidence})
                 </option>
               ))}
             </select>
@@ -261,7 +262,7 @@ export default function App() {
 
         <section className="card span2">
           <h2>Engineer's Notes</h2>
-          <div className="notes">{preview?.reasoning || "—"}</div>
+          <div className="notes">{preview?.reasoning || ""}</div>
           <h3>Diff</h3>
           <DiffViewer items={preview?.diff ?? []} />
         </section>
@@ -274,15 +275,74 @@ export default function App() {
               ? Object.entries(validationReport)
                   .map(([k, v]) => `${k}: ${v}`)
                   .join(" | ")
-              : "—"}
+              : ""}
           </div>
-          <IndexMappingEditor
-            remap={indexRemap}
-            onChange={setIndexRemap}
-            validationReport={validationReport}
-          />
+          <IndexMappingEditor remap={indexRemap} onChange={setIndexRemap} validationReport={validationReport} />
+
+          <details style={{ marginTop: 12 }}>
+            <summary>Cab / IR Options (from REAPER)</summary>
+            <div className="muted" style={{ marginTop: 8 }}>
+              Cab Type (84): {paramEnums["84"]?.length ?? 0} | Mic IR Cab1 (92):{" "}
+              {paramEnums["92"]?.length ?? 0} | Mic IR Cab2 (99): {paramEnums["99"]?.length ?? 0}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              {paramEnums["84"]?.length ? (
+                <div style={{ marginBottom: 10 }}>
+                  <div className="muted">Cab Type (84)</div>
+                  <div style={{ maxHeight: 160, overflow: "auto" }}>
+                    {paramEnums["84"].map((o) => (
+                      <div key={`84:${o.value}`}>
+                        {o.label} <span className="muted">({o.value.toFixed(3)})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {paramEnums["92"]?.length ? (
+                <div style={{ marginBottom: 10 }}>
+                  <div className="muted">Cab 1 Mic IR (92)</div>
+                  <div style={{ maxHeight: 160, overflow: "auto" }}>
+                    {paramEnums["92"].map((o) => (
+                      <div key={`92:${o.value}`}>
+                        {o.label} <span className="muted">({o.value.toFixed(3)})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {paramEnums["99"]?.length ? (
+                <div style={{ marginBottom: 10 }}>
+                  <div className="muted">Cab 2 Mic IR (99)</div>
+                  <div style={{ maxHeight: 160, overflow: "auto" }}>
+                    {paramEnums["99"].map((o) => (
+                      <div key={`99:${o.value}`}>
+                        {o.label} <span className="muted">({o.value.toFixed(3)})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {paramFormats["87"] || paramFormats["88"] || paramFormats["94"] || paramFormats["95"] ? (
+                <div style={{ marginBottom: 10 }}>
+                  <div className="muted">Formatted value examples</div>
+                  {["87", "88", "94", "95"].map((k) =>
+                    paramFormats[k] ? (
+                      <div key={`fmt:${k}`}>
+                        idx {k}: min="{paramFormats[k].min}", mid="{paramFormats[k].mid}", max="
+                        {paramFormats[k].max}"
+                      </div>
+                    ) : null,
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </details>
         </section>
       </div>
     </div>
   );
 }
+

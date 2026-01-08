@@ -1,26 +1,56 @@
 use crate::protocol::{Confidence, GojiraInstance};
 use crate::reaper_api::ReaperApi;
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 
 pub type FxLookup = HashMap<String, (String, i32)>;
+
+fn trace_enabled() -> bool {
+    matches!(
+        std::env::var("GOJIRA_DLL_TRACE_SCAN").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+    )
+}
+
+fn trace_line(msg: &str) {
+    if !trace_enabled() {
+        return;
+    }
+    let path = std::env::temp_dir().join("reaper_gojira_dll_scan.log");
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{}", msg);
+        let _ = f.flush();
+    }
+}
 
 pub fn scan_project_instances(api: &dyn ReaperApi) -> (Vec<GojiraInstance>, FxLookup) {
     let mut instances = Vec::new();
     let mut lookup: FxLookup = HashMap::new();
 
     let track_count = api.count_tracks();
+    trace_line(&format!("scan: track_count={track_count}"));
     for ti in 0..track_count {
         let Some(track) = api.get_track(ti) else { continue };
         let Some(track_guid) = api.track_guid(track) else { continue };
         let track_name = api.track_name(track);
 
         let fx_count = api.track_fx_count(track);
+        trace_line(&format!(
+            "scan: track[{ti}] name='{}' guid='{}' fx_count={}",
+            track_name, track_guid, fx_count
+        ));
         for fxi in 0..fx_count {
             let fx_name = api.track_fx_name(track, fxi);
+            trace_line(&format!("scan: track[{ti}] fx[{fxi}] name='{}'", fx_name));
             let Some(confidence) = gojira_confidence(&fx_name) else {
                 continue;
             };
             let Some(fx_guid) = api.track_fx_guid(track, fxi) else { continue };
+            trace_line(&format!(
+                "scan: MATCH track[{ti}] fx[{fxi}] guid='{}' confidence={:?}",
+                fx_guid, confidence
+            ));
 
             lookup.insert(fx_guid.clone(), (track_guid.clone(), fxi));
             instances.push(GojiraInstance {

@@ -104,11 +104,16 @@ impl MainLoop {
         self.cache.lookup = lookup;
 
         let mut validation_report = HashMap::new();
+        let mut param_enums = HashMap::new();
+        let mut param_formats = HashMap::new();
         if let Some(first) = instances.first() {
             if let Ok((track, fx_index)) =
                 resolver::resolve_fx(api, &mut self.cache.lookup, &first.fx_guid)
             {
                 validation_report = validator::validate_parameter_map(api, track, fx_index);
+                let (enums, formats) = validator::probe_param_meta(api, track, fx_index);
+                param_enums = enums;
+                param_formats = formats;
             }
         }
         self.last_validation_report = validation_report.clone();
@@ -118,6 +123,8 @@ impl MainLoop {
             session_token: session_token.to_string(),
             instances,
             validation_report,
+            param_enums,
+            param_formats,
         });
     }
 
@@ -291,15 +298,11 @@ const MODULES: &[ModuleDef] = &[
     },
     ModuleDef {
         bypass: &[101],
-        params: &[101, 106, 108],
+        params: &[101, 105, 106, 108],
     },
     ModuleDef {
         bypass: &[112],
-        params: &[112, 115, 116, 117],
-    },
-    ModuleDef {
-        bypass: &[83],
-        params: &[83, 84, 87, 88, 89, 92, 94, 95, 96, 99],
+        params: &[112, 114, 115, 116, 117],
     },
 ];
 

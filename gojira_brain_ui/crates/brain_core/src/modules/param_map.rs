@@ -50,13 +50,14 @@ pub mod pedals {
 
     pub mod delay {
         pub const ACTIVE: i32 = 101;
-        pub const MIX: i32 = 106;
         pub const FEEDBACK: i32 = 106;
+        pub const MIX: i32 = 105;
         pub const TIME: i32 = 108;
     }
 
     pub mod reverb {
         pub const ACTIVE: i32 = 112;
+        pub const MIX: i32 = 114;
         pub const TIME: i32 = 115;
         pub const LOW_CUT: i32 = 116;
         pub const HIGH_CUT: i32 = 117;

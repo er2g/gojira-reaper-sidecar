@@ -3,15 +3,16 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
 use crate::commands::HandshakePayload;
 use crate::tauri_utils::app_state::UiCommand;
+use tauri::Manager;
 
 const WS_URL: &str = "ws://127.0.0.1:9001";
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct StatusEvent {
     status: &'static str,
     retry_in: Option<u64>,
@@ -89,12 +90,25 @@ pub async fn run(mut rx: mpsc::Receiver<UiCommand>, app: AppHandle) {
                             let Ok(text) = msg.into_text() else { continue };
                             let Ok(server_msg) = serde_json::from_str::<ServerMessage>(&text) else { continue };
                             match server_msg {
-                                ServerMessage::Handshake { session_token: t, instances, validation_report } => {
+                                ServerMessage::Handshake { session_token: t, instances, validation_report, param_enums, param_formats } => {
                                     session_token = Some(t.clone());
+
+                                    // Keep a copy in backend state so we can inject it into AI prompts.
+                                    if let Some(state) = app.try_state::<crate::tauri_utils::app_state::AppState>() {
+                                        if let Ok(mut g) = state.param_enums.lock() {
+                                            *g = param_enums.clone();
+                                        }
+                                        if let Ok(mut g) = state.param_formats.lock() {
+                                            *g = param_formats.clone();
+                                        }
+                                    }
+
                                     let _ = app.emit("reaper://handshake", HandshakePayload {
                                         session_token: t.clone(),
                                         instances,
                                         validation_report,
+                                        param_enums,
+                                        param_formats,
                                     });
                                     let _ = send_raw(&mut write, &ClientCommand::HandshakeAck { session_token: t }).await;
                                     if let Some(pending) = pending_set_tone.take() {
@@ -204,7 +218,7 @@ async fn send_raw(
 ) -> Result<(), ()> {
     let payload = serde_json::to_string(cmd).map_err(|_| ())?;
     write
-        .send(tokio_tungstenite::tungstenite::Message::Text(payload))
+        .send(tokio_tungstenite::tungstenite::Message::Text(payload.into()))
         .await
         .map_err(|_| ())
 }

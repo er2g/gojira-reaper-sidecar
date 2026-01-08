@@ -2,6 +2,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ParamEnumOption {
+    pub value: f32,
+    pub label: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ParamFormatTriplet {
+    pub min: String,
+    pub mid: String,
+    pub max: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
     Unauthorized,
@@ -20,6 +33,10 @@ pub enum ServerMessage {
         session_token: String,
         instances: Vec<GojiraInstance>,
         validation_report: HashMap<String, String>,
+        #[serde(default)]
+        param_enums: HashMap<i32, Vec<ParamEnumOption>>,
+        #[serde(default)]
+        param_formats: HashMap<i32, ParamFormatTriplet>,
     },
     ProjectChanged,
     Ack { command_id: String },

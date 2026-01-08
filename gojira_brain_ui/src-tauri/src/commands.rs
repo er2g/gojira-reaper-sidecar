@@ -1,6 +1,6 @@
 use brain_core::cleaner::{apply_replace_active_cleaner, sanitize_params};
-use brain_core::gemini::{generate_tone, ToneRequest};
-use brain_core::protocol::{ClientCommand, MergeMode, ParamChange};
+use brain_core::gemini::{generate_tone_auto as gemini_generate_tone, ToneRequest};
+use brain_core::protocol::{ClientCommand, MergeMode, ParamChange, ParamEnumOption, ParamFormatTriplet};
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::{AppHandle, State};
@@ -10,11 +10,13 @@ use crate::tauri_utils::diff::{diff_params, DiffItem};
 use crate::tauri_utils::vault;
 use serde::Deserialize;
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct HandshakePayload {
     pub session_token: String,
     pub instances: Vec<brain_core::protocol::GojiraInstance>,
     pub validation_report: HashMap<String, String>,
+    pub param_enums: HashMap<i32, Vec<ParamEnumOption>>,
+    pub param_formats: HashMap<i32, ParamFormatTriplet>,
 }
 
 #[derive(Serialize)]
@@ -136,27 +138,45 @@ pub async fn generate_tone(
     prompt: String,
     preview_only: bool,
 ) -> Result<PreviewResult, String> {
-    let pass = state
-        .vault
-        .lock()
-        .map_err(|_| "vault lock poisoned")?
-        .passphrase
-        .clone()
-        .ok_or_else(|| "vault passphrase not set".to_string())?;
-    let api_key = vault::load_api_key(&app, &pass)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "api key not set".to_string())?;
-
     let model = std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-1.5-pro".to_string());
-    let tone = generate_tone(
-        &api_key,
-        &model,
-        ToneRequest {
-            user_prompt: prompt,
-        },
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+
+    let backend_env = std::env::var("GEMINI_BACKEND")
+        .ok()
+        .map(|s| s.trim().to_ascii_lowercase());
+    let vertex_model = model.contains("2.5") || model.starts_with("gemini-2");
+    let skip_api_key = matches!(
+        backend_env.as_deref(),
+        Some("vertex")
+            | Some("vertexai")
+            | Some("vertex_ai")
+            | Some("oauth")
+            | Some("google-oauth")
+            | Some("google_oauth")
+            | Some("googleai-oauth")
+    ) || (backend_env.is_none() && vertex_model);
+
+    let api_key = if skip_api_key {
+        None
+    } else {
+        let pass = state
+            .vault
+            .lock()
+            .map_err(|_| "vault lock poisoned")?
+            .passphrase
+            .clone()
+            .ok_or_else(|| "vault passphrase not set".to_string())?;
+        Some(
+            vault::load_api_key(&app, &pass)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "api key not set".to_string())?,
+        )
+    };
+
+    let prompt = augment_prompt_with_param_meta(&state, &prompt);
+
+    let tone = gemini_generate_tone(&model, ToneRequest { user_prompt: prompt }, api_key.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
 
     let index_remap = state
         .index_remap
@@ -187,6 +207,78 @@ pub async fn generate_tone(
         params,
         diff: d,
     })
+}
+
+fn augment_prompt_with_param_meta(state: &AppState, prompt: &str) -> String {
+    let enums = state
+        .param_enums
+        .lock()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+    let formats = state
+        .param_formats
+        .lock()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+
+    if enums.is_empty() && formats.is_empty() {
+        return prompt.to_string();
+    }
+
+    // Keep this compact; model gets the full list but in a machine-friendly shape.
+    let mut meta = String::new();
+    meta.push_str("\n\nPLUGIN PARAM META (from the current REAPER instance):\n");
+
+    // Only include the relevant cab/IR + a couple of mode selectors by default.
+    let include_enum = [84, 92, 99, 113, 5];
+    let mut enum_obj: HashMap<i32, Vec<(f32, String)>> = HashMap::new();
+    for idx in include_enum {
+        if let Some(opts) = enums.get(&idx) {
+            let mapped: Vec<(f32, String)> = opts
+                .iter()
+                .map(|o| (o.value, o.label.clone()))
+                .collect();
+            enum_obj.insert(idx, mapped);
+        }
+    }
+
+    let include_fmt = [87, 88, 94, 95, 105, 106, 108, 114, 115];
+    let mut fmt_obj: HashMap<i32, (String, String, String)> = HashMap::new();
+    for idx in include_fmt {
+        if let Some(t) = formats.get(&idx) {
+            fmt_obj.insert(idx, (t.min.clone(), t.mid.clone(), t.max.clone()));
+        }
+    }
+
+    // JSON keeps token count lower than prose for large IR lists.
+    if !enum_obj.is_empty() {
+        if let Ok(j) = serde_json::to_string(&enum_obj) {
+            meta.push_str("ENUM_OPTIONS_JSON=");
+            meta.push_str(&j);
+            meta.push('\n');
+        }
+    }
+    if !fmt_obj.is_empty() {
+        if let Ok(j) = serde_json::to_string(&fmt_obj) {
+            meta.push_str("FORMATTED_VALUE_TRIPLETS_JSON=");
+            meta.push_str(&j);
+            meta.push('\n');
+        }
+    }
+
+    meta.push_str("Use these option labels when choosing Cab Type (84) and Mic IR (92/99). Set the parameter value close to the provided float for the desired label.\n");
+    meta.push_str("For continuous cab mic controls (Position/Distance), the formatted triplets can hint at units/direction; use them to pick sensible normalized values.\n");
+
+    // Hard cap to prevent runaway prompts if IR lists are enormous.
+    const MAX_EXTRA_CHARS: usize = 25_000;
+    if meta.len() > MAX_EXTRA_CHARS {
+        meta.truncate(MAX_EXTRA_CHARS);
+        meta.push_str("\n...(meta truncated)\n");
+    }
+
+    format!("{prompt}{meta}")
 }
 
 #[tauri::command]
