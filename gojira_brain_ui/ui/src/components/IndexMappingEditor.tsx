@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 
 export type IndexRemapEntry = { from: number; to: number; label: string };
 
@@ -14,22 +14,9 @@ const knownRoles: Array<IndexRemapEntry> = [
   { label: "Overdrive: Active", from: 13, to: 13 },
 ];
 
-function parseConfirmedIndex(s: string | undefined): number | null {
-  if (!s) return null;
-  const m = s.match(/confirmed at (\d+)/i);
-  return m ? Number(m[1]) : null;
-}
-
-function parseIndex(s: string | undefined): number | null {
-  if (!s) return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-}
-
 export default function IndexMappingEditor({
   remap,
   onChange,
-  validationReport,
 }: {
   remap: Record<number, number>;
   onChange: (next: Record<number, number>) => void;
@@ -37,14 +24,6 @@ export default function IndexMappingEditor({
 }) {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-
-  const suggestions = useMemo(() => {
-    const delayMix = parseConfirmedIndex(validationReport?.delay_mix);
-    const reverbMix = parseConfirmedIndex(validationReport?.reverb_mix);
-    const delayActive = parseIndex(validationReport?.delay_active_best_guess);
-    const reverbActive = parseIndex(validationReport?.reverb_active_best_guess);
-    return { delayMix, reverbMix, delayActive, reverbActive };
-  }, [validationReport]);
 
   function set(from: number, to: number) {
     const next = { ...remap };
@@ -72,32 +51,21 @@ export default function IndexMappingEditor({
   return (
     <div>
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <div className="muted">
-          Canonical → Actual (only stored when different)
-        </div>
+        <div className="muted">Canonical → Actual (only stored when different)</div>
         <button className="btn danger" type="button" onClick={resetAll}>
-          Reset Mapping
+          Reset mapping
         </button>
       </div>
 
       <div className="diffList">
         {knownRoles.map((r) => {
           const current = remap[r.from] ?? r.from;
-          const suggestion =
-            r.from === 101
-              ? suggestions.delayActive
-              : r.from === 112
-                ? suggestions.reverbActive
-                : r.from === 105
-                  ? suggestions.delayMix
-                  : null;
           return (
             <div key={r.from} className="diffRow">
               <div className="diffLabel">
                 <span className="badge">#{r.from}</span> {r.label}
                 <div className="muted" style={{ marginTop: 6 }}>
                   Current actual index: <b>{current}</b>
-                  {suggestion ? ` (detected: ${suggestion})` : ""}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -107,22 +75,13 @@ export default function IndexMappingEditor({
                   value={String(current)}
                   onChange={(e) => set(r.from, Number(e.target.value))}
                 />
-                {suggestion ? (
-                  <button
-                    className="btn"
-                    type="button"
-                    onClick={() => set(r.from, suggestion)}
-                  >
-                    Use detected
-                  </button>
-                ) : null}
               </div>
             </div>
           );
         })}
       </div>
 
-      <h3>Custom Mapping</h3>
+      <h3>Custom mapping</h3>
       <div className="row">
         <label>From</label>
         <input
@@ -142,14 +101,6 @@ export default function IndexMappingEditor({
           Add
         </button>
       </div>
-
-      {suggestions.reverbMix ? (
-        <div className="muted">
-          Validator detected <b>reverb_mix</b> at index{" "}
-          <b>{suggestions.reverbMix}</b>. (Not mapped by default because canonical
-          reverb mix index is unknown in our map.)
-        </div>
-      ) : null}
     </div>
   );
 }

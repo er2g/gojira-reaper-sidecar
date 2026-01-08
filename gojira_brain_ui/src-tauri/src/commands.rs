@@ -202,7 +202,14 @@ pub async fn generate_tone(
     let d = diff_params(&old, &params, &index_remap);
 
     if !preview_only {
-        apply_tone_inner(&state, &target_fx_guid, MergeMode::ReplaceActive, params.clone()).await?;
+        apply_tone_inner(
+            &state,
+            &target_fx_guid,
+            MergeMode::ReplaceActive,
+            params.clone(),
+            format!("gen-{}", chrono_nanos()),
+        )
+        .await?;
     }
 
     Ok(PreviewResult {
@@ -344,8 +351,10 @@ pub async fn apply_tone(
     target_fx_guid: String,
     mode: MergeMode,
     params: Vec<ParamChange>,
-) -> Result<(), String> {
-    apply_tone_inner(&state, &target_fx_guid, mode, params).await
+) -> Result<String, String> {
+    let command_id = format!("cmd-{}", chrono_nanos());
+    apply_tone_inner(&state, &target_fx_guid, mode, params, command_id.clone()).await?;
+    Ok(command_id)
 }
 
 async fn apply_tone_inner(
@@ -353,6 +362,7 @@ async fn apply_tone_inner(
     target_fx_guid: &str,
     mode: MergeMode,
     params: Vec<ParamChange>,
+    command_id: String,
 ) -> Result<(), String> {
     let index_remap = state
         .index_remap
@@ -367,7 +377,7 @@ async fn apply_tone_inner(
 
     let cmd = ClientCommand::SetTone {
         session_token: String::new(),
-        command_id: format!("cmd-{}", chrono_nanos()),
+        command_id,
         target_fx_guid: target_fx_guid.to_string(),
         mode,
         params: params.clone(),

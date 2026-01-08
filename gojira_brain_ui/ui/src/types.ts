@@ -40,3 +40,16 @@ export type PreviewResult = {
   params: ParamChange[];
   diff: DiffItem[];
 };
+
+export type AppliedParam = {
+  index: number;
+  requested: number;
+  applied: number;
+  formatted?: string;
+};
+
+export type AckMessage = {
+  type: "ack";
+  command_id: string;
+  applied_params: AppliedParam[];
+};

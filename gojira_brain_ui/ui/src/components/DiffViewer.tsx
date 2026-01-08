@@ -14,17 +14,14 @@ export default function DiffViewer({ items }: { items: DiffItem[] }) {
   return (
     <div className="diffList">
       {items.map((it) => {
-        const isUp =
-          it.old_value === null
-            ? true
-            : it.new_value !== null && it.new_value > it.old_value;
+        const isUp = it.old_value === null ? true : it.new_value !== null && it.new_value > it.old_value;
         return (
           <div key={`${it.index}`} className="diffRow">
             <div className="diffLabel">
               <span className="badge">#{it.index}</span> {it.label}
             </div>
             <div className={`diffValue ${isUp ? "up" : "down"}`}>
-              {fmt(it.old_value)} ➔ {fmt(it.new_value)}
+              {fmt(it.old_value)} → {fmt(it.new_value)}
             </div>
           </div>
         );
@@ -32,3 +29,4 @@ export default function DiffViewer({ items }: { items: DiffItem[] }) {
     </div>
   );
 }
+
