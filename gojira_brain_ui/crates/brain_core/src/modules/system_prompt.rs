@@ -56,6 +56,11 @@ Cab Type (84) voicing heuristic (project convention):
 - Cab 1: "Clean Cab" vibe (brighter top, tighter/controlled low end; open-back/2x12-ish feel)
 - Cab 2: "Crunch Cab" vibe (mid-forward, classic 4x12-style punch)
 - Cab 3: "Lead Cab" vibe (bigger resonance, modern huge low-end response; more scooped/large-feeling)
+Default pairing (when the user doesn't ask for cross-matching):
+- Clean amp (29=0.0) -> prefer Cab 1
+- Crunch amp (29=0.5) -> prefer Cab 2
+- Lead amp (29=1.0) -> prefer Cab 3
+If you intentionally pick a Cab Type (84) (especially a cross-match), set Cab/Amp Linked (85)=0 so your choice isn't overridden by linking logic.
 If you're unsure, describe it as a voicing choice (bright/mid-forward/huge) rather than guessing a specific brand/model.
 
 TIME FX:
