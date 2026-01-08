@@ -7,6 +7,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 def read_text(path: str) -> str:
     raw = open(path, "rb").read()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
     if raw.startswith(b"\xff\xfe") or raw[:200].count(b"\x00") > 20:
         if raw.startswith(b"\xff\xfe"):
             raw = raw[2:]
@@ -20,6 +22,8 @@ PARAM_LINE = re.compile(r"^\s*(\d+)\s+(.+?)\s+=\s+([0-9.]+)\s*$")
 @dataclass(frozen=True)
 class ParsedLog:
     filename: str
+    prompt_file: Optional[str]
+    prompt_text: str
     reasoning: str
     warnings: List[str]
     model_params: List[Tuple[int, str, float, str]]  # idx, label, value, group
@@ -33,11 +37,61 @@ class PromptSpec:
     allow_reverb: bool = False
     require_delay: bool = False
     require_chorus: bool = False
+    avoid_hz_khz: bool = False
+
+
+def infer_prompt_spec(prompt: str) -> PromptSpec:
+    p = prompt.strip()
+    plow = p.lower()
+
+    forbid_delay = bool(re.search(r"\bno\s+delay\b", plow))
+    forbid_reverb = bool(re.search(r"\bno\s+reverb\b", plow))
+
+    allow_delay = (not forbid_delay) and bool(
+        re.search(r"\b(delay\s+ok|delay\s+allowed|with\s+delay)\b", plow)
+    )
+    allow_reverb = (not forbid_reverb) and bool(
+        re.search(
+            r"\b(reverb\s+ok|subtle\s+reverb|minimal\s+reverb|very\s+subtle.*reverb|room\s+reverb|short\s+reverb|tiny\s+reverb)\b",
+            plow,
+        )
+    )
+
+    # If prompt doesn't mention the effect at all, default to "not allowed" for QA checks.
+    # This is conservative and matches most tone prompts in this repo.
+    if not forbid_delay and not allow_delay and "delay" not in plow:
+        allow_delay = False
+    if not forbid_reverb and not allow_reverb and "reverb" not in plow:
+        allow_reverb = False
+
+    require_delay = bool(re.search(r"\b(require|needs|must have)\s+delay\b", plow))
+    require_chorus = bool(re.search(r"\b(require|needs|must have)\s+chorus\b", plow))
+    avoid_hz_khz = bool(re.search(r"\bavoid\b.*\b(hz|khz)\b|\bno\b.*\b(hz|khz)\b", plow))
+
+    return PromptSpec(
+        prompt=p if p else "(prompt not recorded)",
+        allow_delay=allow_delay or require_delay,
+        allow_reverb=allow_reverb,
+        require_delay=require_delay,
+        require_chorus=require_chorus,
+        avoid_hz_khz=avoid_hz_khz,
+    )
 
 
 def parse_log(path: str) -> ParsedLog:
     txt = read_text(path)
     filename = os.path.basename(path)
+
+    prompt_file: Optional[str] = None
+    prompt_text: str = ""
+    m_prompt = re.search(r"^prompt_file=(.+)$", txt, re.M)
+    if m_prompt:
+        prompt_file = m_prompt.group(1).strip()
+        try:
+            if prompt_file and os.path.exists(prompt_file):
+                prompt_text = read_text(prompt_file).strip()
+        except Exception:
+            prompt_text = ""
 
     reasoning = ""
     m = re.search(r"\breasoning:\s*\n(.*?)\n\s*qc:\s*\n", txt, re.S | re.I)
@@ -87,6 +141,8 @@ def parse_log(path: str) -> ParsedLog:
 
     return ParsedLog(
         filename=filename,
+        prompt_file=prompt_file,
+        prompt_text=prompt_text,
         reasoning=reasoning,
         warnings=warnings,
         model_params=model_params,
@@ -260,7 +316,7 @@ def detect_logic_flags(stem: str, spec: PromptSpec, item: ParsedLog) -> List[str
     rlow = item.reasoning.lower()
     if "compressor" in rlow:
         flags.append("Reasoning mentions compressor (plugin has no dedicated compressor)")
-    if re.search(r"\b\d+(\.\d+)?\s*(hz|khz)\b", item.reasoning, flags=re.I):
+    if spec.avoid_hz_khz and re.search(r"\b\d+(\.\d+)?\s*(hz|khz)\b", item.reasoning, flags=re.I):
         flags.append("Reasoning mentions Hz/kHz (prompt asked to avoid)")
 
     # Reasoning vs params contradictions (light heuristics)
@@ -351,7 +407,6 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="Output markdown report path")
     args = ap.parse_args()
 
-    prompt_map = build_prompt_map()
     logs = sorted([p for p in os.listdir(args.dir) if p.lower().endswith(".log")])
     parsed: List[ParsedLog] = [parse_log(os.path.join(args.dir, f)) for f in logs]
 
@@ -366,7 +421,7 @@ def main() -> int:
 
         stem = re.sub(r"^\d+_", "", item.filename)
         stem = re.sub(r"\.log$", "", stem, flags=re.I)
-        spec = prompt_map.get(stem) or PromptSpec(prompt="(prompt not recorded)")
+        spec = infer_prompt_spec(item.prompt_text or "(prompt not recorded)")
         derived = detect_logic_flags(stem, spec, item)
         derived_by_file[item.filename] = derived
         for w in derived:
@@ -394,13 +449,14 @@ def main() -> int:
         base = item.filename
         stem = re.sub(r"^\d+_", "", base)
         stem = re.sub(r"\.log$", "", stem, flags=re.I)
-        spec = prompt_map.get(stem) or PromptSpec(prompt="(prompt not recorded)")
+        spec = infer_prompt_spec(item.prompt_text or "(prompt not recorded)")
 
         model_map = {idx: val for (idx, _, val, _) in item.model_params}
         amp_val = model_map.get(29)
         amp = amp_name(amp_val) if amp_val is not None else "Unset"
 
         lines.append(f"## {base}")
+        lines.append(f"- Prompt file: {item.prompt_file or '(unknown)'}")
         lines.append(f"- Prompt: {spec.prompt}")
         lines.append(f"- Amp Type (29): **{amp}**" + (f" (`{amp_val:.3f}`)" if amp_val is not None else ""))
         lines.append("")

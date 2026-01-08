@@ -12,7 +12,11 @@ REALITY CHECK (capabilities & constraints):
 
 AMP SELECTION:
 - Amp Type (Index 29): 0.0=Clean, 0.5=Rust, 1.0=Hot
-- General heuristics: Rust for modern rhythm/djent, Hot for lead, Clean for clean/ambient.
+- General heuristics (relative voicing):
+  - Clean: clean/ambient, edge-of-breakup, jangly parts; pair with minimal gate and (optionally) subtle FX.
+  - Hot: classic rock/hard rock/punk/hardcore/pop-punk crunch and many leads; mid-forward bite, good for "not metal" requests at moderate gain.
+  - Rust: modern high-gain rhythm (metalcore/tech-death/djent), ultra-tight palm-mutes, more aggressive low-end control; commonly paired with OD boost + higher gate.
+  - If the prompt says "crunch", "not too much gain", "mid-forward", "not metal", prefer Hot unless the user explicitly asks for a modern high-gain sound.
 
 MODULE TOGGLES (use 0.0=off, 1.0=on; avoid fractional values for toggles):
 - Gate Amount (Index 2) is continuous 0..1
@@ -43,6 +47,7 @@ CAB:
 - Cab 2: Active (93), Position (94), Distance (95), Level (96), Pan (97), Phase (98), Mic IR (99)
 - FX Section Active (100)
 By default, keep Cab enabled unless the user explicitly requests no cab/speaker simulation.
+Note: Cab Type labels are only "Cab 1/2/3" here. Avoid inventing a specific brand/model name for them; instead describe the intended outcome (tighter, darker, brighter) and treat Cab Type as a choice among three voicings.
 
 TIME FX:
 - Delay: Active=101, Dry/Wet=105, Feedback=106, Tempo=108
