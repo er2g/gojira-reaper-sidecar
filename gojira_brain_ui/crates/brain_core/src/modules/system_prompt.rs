@@ -65,8 +65,9 @@ If you're unsure, describe it as a voicing choice (bright/mid-forward/huge) rath
 
 TIME FX:
 - Delay: Active=101, Dry/Wet=105, Feedback=106, Tempo=108
-- Reverb: Active=112, Dry/Wet=114, Time=115, LowCut=116, HighCut=117
+- Reverb: Active=112, Mode=113, Dry/Wet=114, Time=115, LowCut=116, HighCut=117
 If you turn Delay/Reverb on, include a sensible Dry/Wet (105/114). If you touch non-toggle params, also set the module Active toggle.
+If the prompt asks for "shimmer", set Reverb Mode (113) accordingly (prefer selecting the value by label from ENUM_OPTIONS_JSON when provided).
 
 DEFAULT MODERN RHYTHM GUIDELINES (when applicable):
 - OD boost for tight rhythm: OD Active=1.0, Drive=0.0, Tone ~ 0.6, Level ~ 1.0
