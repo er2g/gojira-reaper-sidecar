@@ -76,7 +76,11 @@ pub fn set_vault_passphrase(state: State<'_, AppState>, passphrase: String) -> R
 }
 
 #[tauri::command]
-pub fn has_api_key(app: AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
+pub fn has_api_key(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider: String,
+) -> Result<bool, String> {
     let pass = state
         .vault
         .lock()
@@ -84,13 +88,17 @@ pub fn has_api_key(app: AppHandle, state: State<'_, AppState>) -> Result<bool, S
         .passphrase
         .clone()
         .ok_or_else(|| "vault passphrase not set".to_string())?;
-    Ok(vault::load_api_key(&app, &pass)
+    Ok(vault::load_api_key(&app, &pass, &provider)
         .map_err(|e| e.to_string())?
         .is_some())
 }
 
 #[tauri::command]
-pub fn save_api_key(app: AppHandle, state: State<'_, AppState>, api_key: String) -> Result<(), String> {
+pub fn list_api_key_presence(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    providers: Vec<String>,
+) -> Result<HashMap<String, bool>, String> {
     let pass = state
         .vault
         .lock()
@@ -98,11 +106,24 @@ pub fn save_api_key(app: AppHandle, state: State<'_, AppState>, api_key: String)
         .passphrase
         .clone()
         .ok_or_else(|| "vault passphrase not set".to_string())?;
-    vault::save_api_key(&app, &pass, &api_key).map_err(|e| e.to_string())
+
+    let mut map = HashMap::new();
+    for provider in providers {
+        let present = vault::load_api_key(&app, &pass, &provider)
+            .map_err(|e| e.to_string())?
+            .is_some();
+        map.insert(provider, present);
+    }
+    Ok(map)
 }
 
 #[tauri::command]
-pub fn clear_api_key(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+pub fn save_api_key(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider: String,
+    api_key: String,
+) -> Result<(), String> {
     let pass = state
         .vault
         .lock()
@@ -110,7 +131,23 @@ pub fn clear_api_key(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
         .passphrase
         .clone()
         .ok_or_else(|| "vault passphrase not set".to_string())?;
-    vault::clear_api_key(&app, &pass).map_err(|e| e.to_string())
+    vault::save_api_key(&app, &pass, &provider, &api_key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_api_key(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider: String,
+) -> Result<(), String> {
+    let pass = state
+        .vault
+        .lock()
+        .map_err(|_| "vault lock poisoned")?
+        .passphrase
+        .clone()
+        .ok_or_else(|| "vault passphrase not set".to_string())?;
+    vault::clear_api_key(&app, &pass, &provider).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -156,8 +193,32 @@ pub async fn generate_tone(
     preview_only: bool,
     mode: MergeMode,
     base_params: Option<Vec<ParamChange>>,
+    provider: Option<String>,
+    model: Option<String>,
 ) -> Result<PreviewResult, String> {
-    let model = std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-pro".to_string());
+    let provider = provider
+        .unwrap_or_else(|| "gemini".to_string())
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(
+        provider.as_str(),
+        "" | "gemini" | "google" | "google_ai" | "google-ai"
+    ) {
+        return Err(format!(
+            "provider {provider} is not wired yet; use Gemini for tone generation"
+        ));
+    }
+
+    let model = model
+        .and_then(|m| {
+            let trimmed = m.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .unwrap_or_else(|| std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-pro".to_string()));
 
     let backend_env = std::env::var("GEMINI_BACKEND")
         .ok()
@@ -185,7 +246,7 @@ pub async fn generate_tone(
             .clone()
             .ok_or_else(|| "vault passphrase not set".to_string())?;
         Some(
-            vault::load_api_key(&app, &pass)
+            vault::load_api_key(&app, &pass, &provider)
                 .map_err(|e| e.to_string())?
                 .ok_or_else(|| "api key not set".to_string())?,
         )

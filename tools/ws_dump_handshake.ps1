@@ -1,6 +1,14 @@
+param(
+  [string]$Uri = $(
+    if ($env:GOJIRA_WS_URL) { $env:GOJIRA_WS_URL }
+    elseif ($env:GOJIRA_WS_ADDR) { "ws://$($env:GOJIRA_WS_ADDR)" }
+    else { "ws://127.0.0.1:9001" }
+  )
+)
+
 $ErrorActionPreference = "Stop"
 
-$uri = [Uri]"ws://127.0.0.1:9001"
+$uri = [Uri]$Uri
 $ws = [System.Net.WebSockets.ClientWebSocket]::new()
 $ct = [Threading.CancellationToken]::None
 

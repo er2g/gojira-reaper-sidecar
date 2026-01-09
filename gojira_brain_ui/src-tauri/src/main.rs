@@ -48,6 +48,7 @@ fn main() {
             commands::disconnect_ws,
             commands::set_vault_passphrase,
             commands::has_api_key,
+            commands::list_api_key_presence,
             commands::save_api_key,
             commands::clear_api_key,
             commands::get_index_remap,

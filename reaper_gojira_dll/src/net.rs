@@ -9,7 +9,8 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tungstenite::protocol::Message;
 
-const WS_ADDR: &str = "127.0.0.1:9001";
+const DEFAULT_WS_ADDR: &str = "127.0.0.1:9001";
+const WS_ADDR_ENV: &str = "GOJIRA_WS_ADDR";
 
 struct ActiveClient {
     ws: tungstenite::WebSocket<TcpStream>,
@@ -20,19 +21,42 @@ struct ActiveClient {
 pub struct NetworkThread {
     shutdown: Arc<AtomicBool>,
     join_handle: Mutex<Option<JoinHandle<()>>>,
+    listen_addr: SocketAddr,
 }
 
 impl NetworkThread {
     pub fn spawn(in_tx: Sender<InboundMsg>, out_rx: Receiver<OutboundMsg>) -> Result<Self, String> {
+        let addr = std::env::var(WS_ADDR_ENV).unwrap_or_else(|_| DEFAULT_WS_ADDR.to_string());
+        Self::spawn_with_addr(&addr, in_tx, out_rx)
+    }
+
+    pub fn spawn_with_addr(
+        addr: &str,
+        in_tx: Sender<InboundMsg>,
+        out_rx: Receiver<OutboundMsg>,
+    ) -> Result<Self, String> {
+        let listener = TcpListener::bind(addr)
+            .map_err(|e| format!("ws bind failed on {addr}: {e}"))?;
+        let _ = listener.set_nonblocking(true);
+        let listen_addr = listener
+            .local_addr()
+            .map_err(|e| format!("ws local_addr failed: {e}"))?;
+
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_for_thread = Arc::clone(&shutdown);
 
-        let join_handle = thread::spawn(move || run_server(in_tx, out_rx, shutdown_for_thread));
+        let join_handle =
+            thread::spawn(move || run_server(listener, in_tx, out_rx, shutdown_for_thread));
 
         Ok(Self {
             shutdown,
             join_handle: Mutex::new(Some(join_handle)),
+            listen_addr,
         })
+    }
+
+    pub fn listen_addr(&self) -> SocketAddr {
+        self.listen_addr
     }
 
     pub fn shutdown(&self) {
@@ -51,16 +75,12 @@ impl Drop for NetworkThread {
     }
 }
 
-fn run_server(in_tx: Sender<InboundMsg>, out_rx: Receiver<OutboundMsg>, shutdown: Arc<AtomicBool>) {
-    let listener = match TcpListener::bind(WS_ADDR) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("ws bind failed on {WS_ADDR}: {e}");
-            return;
-        }
-    };
-    let _ = listener.set_nonblocking(true);
-
+fn run_server(
+    listener: TcpListener,
+    in_tx: Sender<InboundMsg>,
+    out_rx: Receiver<OutboundMsg>,
+    shutdown: Arc<AtomicBool>,
+) {
     let mut active: Option<ActiveClient> = None;
 
     while !shutdown.load(Ordering::Relaxed) {
@@ -243,4 +263,3 @@ fn send_server_message(
     let payload = serde_json::to_string(msg).map_err(|_| ())?;
     ws.send(Message::Text(payload.into())).map_err(|_| ())
 }
-

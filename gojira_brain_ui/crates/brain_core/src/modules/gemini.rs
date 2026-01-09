@@ -112,6 +112,13 @@ fn decide_pipeline() -> TonePipeline {
     }
 }
 
+fn oauth_scope_insufficient(body: &str) -> bool {
+    let b = body.to_ascii_lowercase();
+    b.contains("access_token_scope_insufficient")
+        || b.contains("insufficient authentication scopes")
+        || (b.contains("permission_denied") && b.contains("scope"))
+}
+
 fn research_model_for(main_model: &str) -> String {
     if let Ok(m) = std::env::var("TONE_RESEARCH_MODEL") {
         let m = m.trim().to_string();
@@ -582,24 +589,12 @@ async fn generate_tone_single_stage(
             match generate_tone_google_oauth(model, req.clone()).await {
                 Ok(ok) => Ok(ok),
                 Err(GeminiError::BadStatus { status, body })
-                    if status == StatusCode::FORBIDDEN
-                        && body
-                            .to_ascii_lowercase()
-                            .contains("insufficient authentication scopes") =>
+                    if status == StatusCode::FORBIDDEN && oauth_scope_insufficient(&body) =>
                 {
-                    // If the token doesn't have Generative Language API scopes, try Vertex (which
-                    // typically works with cloud-platform scoped tokens) when configured.
-                    if std::env::var("VERTEX_PROJECT").is_ok()
-                        || std::env::var("GOOGLE_CLOUD_PROJECT").is_ok()
-                        || std::env::var("GCLOUD_PROJECT").is_ok()
-                    {
-                        generate_tone_vertex(model, req).await
-                    } else {
-                        Err(GeminiError::BadStatus {
-                            status: StatusCode::FORBIDDEN,
-                            body,
-                        })
-                    }
+                    // If the OAuth token doesn't have Generative Language API scopes, prefer Vertex
+                    // (cloud-platform scoped tokens usually work). Project can be discovered from
+                    // gcloud config as a fallback.
+                    generate_tone_vertex(model, req).await
                 }
                 Err(e) => Err(e),
             }
@@ -628,7 +623,15 @@ async fn generate_research_auto(
                 Err(e) => Err(e),
             }
         }
-        GeminiBackend::GoogleAiOauth => generate_text_google_oauth(model, &full_prompt).await,
+        GeminiBackend::GoogleAiOauth => match generate_text_google_oauth(model, &full_prompt).await {
+            Ok(ok) => Ok(ok),
+            Err(GeminiError::BadStatus { status, body })
+                if status == StatusCode::FORBIDDEN && oauth_scope_insufficient(&body) =>
+            {
+                generate_text_vertex(model, &full_prompt).await
+            }
+            Err(e) => Err(e),
+        },
         GeminiBackend::VertexAi => generate_text_vertex(model, &full_prompt).await,
     }
 }
@@ -939,11 +942,55 @@ async fn generate_tone_vertex(model: &str, req: ToneRequest) -> Result<ToneRespo
     let project = std::env::var("VERTEX_PROJECT")
         .or_else(|_| std::env::var("GOOGLE_CLOUD_PROJECT"))
         .or_else(|_| std::env::var("GCLOUD_PROJECT"))
-        .map_err(|_| {
+        .ok()
+        .and_then(|s| {
+            let t = s.trim().to_string();
+            (!t.is_empty() && t != "(unset)").then_some(t)
+        })
+        .or_else(|| {
+            fn run(args: &[&str]) -> std::io::Result<std::process::Output> {
+                if cfg!(windows) {
+                    let mut cmd_args: Vec<&str> = vec!["/C", "gcloud"];
+                    cmd_args.extend_from_slice(args);
+                    Command::new("cmd").args(cmd_args).output()
+                } else {
+                    Command::new("gcloud").args(args).output()
+                }
+            }
+
+            if let Ok(out) = run(&["config", "get-value", "project"]) {
+                if out.status.success() {
+                    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if !v.is_empty() && v != "(unset)" {
+                        return Some(v);
+                    }
+                }
+            }
+            if let Ok(out) = run(&["projects", "list", "--format=value(projectId)", "--limit=1"]) {
+                if out.status.success() {
+                    let v = String::from_utf8_lossy(&out.stdout)
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if !v.is_empty() {
+                        return Some(v);
+                    }
+                }
+            }
+            None
+        })
+        .ok_or_else(|| {
             GeminiError::Auth(
-                "missing VERTEX_PROJECT/GOOGLE_CLOUD_PROJECT (required for Vertex AI)".to_string(),
+                "missing Vertex project id; set VERTEX_PROJECT/GOOGLE_CLOUD_PROJECT or configure gcloud project"
+                    .to_string(),
             )
         })?;
+
+    if std::env::var("VERTEX_PROJECT").is_err() {
+        std::env::set_var("VERTEX_PROJECT", &project);
+    }
 
     let location = std::env::var("VERTEX_LOCATION")
         .or_else(|_| std::env::var("GOOGLE_CLOUD_LOCATION"))

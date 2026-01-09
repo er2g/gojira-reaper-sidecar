@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
 
 pub type FxLookup = HashMap<String, (String, i32)>;
 
@@ -26,45 +25,47 @@ fn trace_line(msg: &str) {
     }
 }
 
+fn scan_all_projects_enabled() -> bool {
+    matches!(
+        std::env::var("GOJIRA_SCAN_ALL_PROJECTS").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
+    )
+}
+
 pub fn scan_project_instances(api: &dyn ReaperApi) -> (Vec<GojiraInstance>, FxLookup) {
     let mut instances = Vec::new();
     let mut lookup: FxLookup = HashMap::new();
 
-    let mut projects: Vec<(usize, String, bool)> = Vec::new(); // (proj_ptr, path, is_current)
+    let mut projects: Vec<(usize, bool)> = Vec::new(); // (proj_ptr, is_current)
     let mut seen: HashSet<usize> = HashSet::new();
-    if let Some((p, path)) = api.current_project() {
-        projects.push((p, path, true));
-        seen.insert(p);
-    }
-    for i in 0..256 {
-        let Some((p, path)) = api.enum_project(i) else { break };
-        if seen.insert(p) {
-            projects.push((p, path, false));
+
+    let Some((current, _)) = api.current_project() else {
+        return (instances, lookup);
+    };
+    projects.push((current, true));
+    seen.insert(current);
+
+    if scan_all_projects_enabled() {
+        for i in 0..256 {
+            let Some((p, _)) = api.enum_project(i) else { break };
+            if seen.insert(p) {
+                projects.push((p, false));
+            }
         }
     }
 
-    trace_line(&format!("scan: projects={}", projects.len()));
-    for (proj, proj_path, is_current) in projects {
-        let proj_label = Path::new(&proj_path)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or_else(|| proj_path.as_str())
-            .to_string();
-
+    trace_line(&format!("scan: projects={} all={}", projects.len(), scan_all_projects_enabled()));
+    for (proj, is_current) in projects {
         let track_count = api.count_tracks_in(proj);
         trace_line(&format!(
-            "scan: project='{}' current={} track_count={}",
-            proj_label, is_current, track_count
+            "scan: project_ptr={} current={} track_count={}",
+            proj, is_current, track_count
         ));
         for ti in 0..track_count {
             let Some(track) = api.get_track_in(proj, ti) else { continue };
             let Some(track_guid) = api.track_guid(track) else { continue };
             let track_name_raw = api.track_name(track);
-            let track_name = if is_current {
-                track_name_raw
-            } else {
-                format!("{} [{proj_label}]", track_name_raw)
-            };
+            let track_name = track_name_raw;
 
             let fx_count = api.track_fx_count(track);
             trace_line(&format!(
@@ -128,29 +129,36 @@ pub fn resolve_fx(
 }
 
 pub fn find_track_by_guid(api: &dyn ReaperApi, track_guid: &str) -> Option<usize> {
-    // Prefer current project first, then other open project tabs.
-    let mut projects: Vec<usize> = Vec::new();
-    let mut seen: HashSet<usize> = HashSet::new();
-    if let Some((p, _)) = api.current_project() {
-        projects.push(p);
-        seen.insert(p);
-    }
-    for i in 0..256 {
-        let Some((p, _)) = api.enum_project(i) else { break };
-        if seen.insert(p) {
-            projects.push(p);
+    // Default: only touch the active/current project (prevents applying to a background tab).
+    let Some((proj, _)) = api.current_project() else {
+        return None;
+    };
+
+    let track_count = api.count_tracks_in(proj);
+    for ti in 0..track_count {
+        let Some(track) = api.get_track_in(proj, ti) else { continue };
+        if api.track_guid(track).as_deref() == Some(track_guid) {
+            return Some(track);
         }
     }
 
-    for proj in projects {
-        let track_count = api.count_tracks_in(proj);
-        for ti in 0..track_count {
-            let Some(track) = api.get_track_in(proj, ti) else { continue };
-            if api.track_guid(track).as_deref() == Some(track_guid) {
-                return Some(track);
+    // Opt-in: allow resolving across all open projects.
+    if scan_all_projects_enabled() {
+        for i in 0..256 {
+            let Some((p, _)) = api.enum_project(i) else { break };
+            if p == proj {
+                continue;
+            }
+            let track_count = api.count_tracks_in(p);
+            for ti in 0..track_count {
+                let Some(track) = api.get_track_in(p, ti) else { continue };
+                if api.track_guid(track).as_deref() == Some(track_guid) {
+                    return Some(track);
+                }
             }
         }
     }
+
     None
 }
 

@@ -1,6 +1,7 @@
 import React from "react";
-import type { GojiraInstance } from "../types";       
-import type { PickupPosition, SavedSnapshot } from "../workspace";    
+import type { ApiProviderOption, ProviderId } from "../apiProviders";
+import type { GojiraInstance } from "../types";
+import type { PickupPosition, SavedSnapshot } from "../workspace";
 import { formatTime } from "../workspace";
 
 export default function SidebarPanel(props: {
@@ -25,14 +26,19 @@ export default function SidebarPanel(props: {
   setRefineEnabled: (v: boolean) => void;
   refineDisabled: boolean;
 
+  providers: ApiProviderOption[];
+  apiProvider: ProviderId;
+  setApiProvider: (v: ProviderId) => void;
+  apiModel: string;
+  setApiModel: (v: string) => void;
   vaultPassphrase: string;
   setVaultPassphrase: (v: string) => void;
-  apiKey: string;
-  setApiKey: (v: string) => void;
-  apiKeyPresent: boolean | null;
+  apiKeyDrafts: Record<ProviderId, string>;
+  setApiKeyDraft: (provider: ProviderId, value: string) => void;
+  apiKeyPresence: Record<ProviderId, boolean>;
   onUnlockVault: () => void;
-  onSaveKey: () => void;
-  onClearKey: () => void;
+  onSaveKey: (provider: ProviderId) => void;
+  onClearKey: (provider: ProviderId) => void;
 
   pickupNeck: string;
   setPickupNeck: (v: string) => void;
@@ -45,6 +51,7 @@ export default function SidebarPanel(props: {
 
   snapshots: SavedSnapshot[];
   onRestoreSnapshot: (s: SavedSnapshot) => void;
+  onApplySnapshot: (s: SavedSnapshot) => void;
 }) {
   return (
     <aside className="panel sidebar">
@@ -132,34 +139,81 @@ export default function SidebarPanel(props: {
 
         <details style={{ marginTop: 10 }}>
           <summary className="muted" style={{ cursor: "pointer" }}>
-            Security / API key
+            Credentials / models
           </summary>
-          <div style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
             <div className="row">
               <label>Vault passphrase</label>
               <input
                 value={props.vaultPassphrase}
                 onChange={(e) => props.setVaultPassphrase(e.target.value)}
                 type="password"
-                placeholder="Passphrase (not your API key)"
+                placeholder="Passphrase (never your API key)"
               />
               <button className="btn" onClick={props.onUnlockVault} type="button">
                 Unlock
               </button>
             </div>
+
             <div className="row">
-              <label>Gemini API key</label>
-              <input value={props.apiKey} onChange={(e) => props.setApiKey(e.target.value)} type="password" placeholder="AIza..." />
-              <button className="btn" onClick={props.onSaveKey} type="button">
-                Save
-              </button>
-              <button className="btn danger" onClick={props.onClearKey} type="button">
-                Clear
-              </button>
+              <label>Active provider</label>
+              <select value={props.apiProvider} onChange={(e) => props.setApiProvider(e.target.value)}>
+                {props.providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            <div className="row">
+              <label>Model</label>
+              <input
+                value={props.apiModel}
+                onChange={(e) => props.setApiModel(e.target.value)}
+                placeholder="gemini-2.5-pro, gpt-4o, claude-3.5-sonnet, etc."
+              />
+            </div>
+
             <div className="muted">
-              Stored in Stronghold vault:{" "}
-              {props.apiKeyPresent === null ? "unknown" : props.apiKeyPresent ? "yes" : "no"}
+              Keys live in the Stronghold vault. Gemini remains the active tone engine for now; other providers are staged here so you can save
+              credentials and model names ahead of time.
+            </div>
+
+            <div className="divider" />
+            <div className="muted">Provider credentials</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {props.providers.map((p) => {
+                const draft = props.apiKeyDrafts[p.id] ?? "";
+                const stored = props.apiKeyPresence[p.id];
+                return (
+                  <div key={p.id} className="row" style={{ alignItems: "center", gap: 8 }}>
+                    <div style={{ minWidth: 170 }}>
+                      <div>{p.label}</div>
+                      {p.hint ? (
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          {p.hint}
+                        </div>
+                      ) : null}
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        Stored: {stored === undefined ? "unknown" : stored ? "yes" : "no"}
+                      </div>
+                    </div>
+                    <input
+                      value={draft}
+                      onChange={(e) => props.setApiKeyDraft(p.id, e.target.value)}
+                      type="password"
+                      placeholder={p.placeholder || "API key / token"}
+                    />
+                    <button className="btn" onClick={() => props.onSaveKey(p.id)} type="button" disabled={!draft.trim()}>
+                      Save
+                    </button>
+                    <button className="btn danger" onClick={() => props.onClearKey(p.id)} type="button">
+                      Clear
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </details>
@@ -231,7 +285,22 @@ export default function SidebarPanel(props: {
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button className="btn" type="button" onClick={() => props.onRestoreSnapshot(s)}>
-                      Restore
+                      Load
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={!props.selectedFxGuid || !s.state.preview?.params?.length}
+                      title={
+                        !props.selectedFxGuid
+                          ? "Select a target Gojira instance first."
+                          : !s.state.preview?.params?.length
+                            ? "Snapshot has no preview params to apply."
+                            : "Apply snapshot params to REAPER."
+                      }
+                      onClick={() => props.onApplySnapshot(s)}
+                    >
+                      Apply
                     </button>
                   </div>
                 </div>

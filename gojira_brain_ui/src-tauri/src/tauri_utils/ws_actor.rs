@@ -121,6 +121,19 @@ pub async fn run(mut rx: mpsc::Receiver<UiCommand>, app: AppHandle) {
                                 }
                                 ServerMessage::ProjectChanged => {
                                     let _ = app.emit("reaper://project_changed", ());
+
+                                    // UX: immediately refresh instance list so the UI updates when the user switches projects,
+                                    // inserts/removes FX, etc. The DLL side already debounces ProjectChanged.
+                                    if session_token.is_some() {
+                                        let _ = send_to_dll(
+                                            &mut write,
+                                            &session_token,
+                                            ClientCommand::RefreshInstances {
+                                                session_token: String::new(),
+                                            },
+                                        )
+                                        .await;
+                                    }
                                 }
                                 ServerMessage::Ack { .. } => {
                                     let _ = app.emit("reaper://ack", server_msg);

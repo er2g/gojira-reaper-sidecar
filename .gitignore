@@ -2,6 +2,11 @@
 **/target
 **/*.rs.bk
 
+# Local secrets
+.env
+.env.*
+!.env.example
+
 # Tauri / UI (future)
 gojira_brain_ui/node_modules
 gojira_brain_ui/dist
@@ -9,9 +14,12 @@ gojira_brain_ui/.tauri
 
 gojira_brain_ui/ui/node_modules
 gojira_brain_ui/ui/dist
+gojira_brain_ui/ui/vite.dev*.log
 
 # Tauri build/codegen output
 gojira_brain_ui/src-tauri/gen
+gojira_brain_ui/src-tauri/package-lock.json
+gojira_brain_ui/package-lock.json
 
 # Local tone run logs / reports
 tone_runs*/

@@ -3,6 +3,7 @@ import ChatPanel from "./components/ChatPanel";
 import InspectorPanel from "./components/InspectorPanel";
 import SidebarPanel from "./components/SidebarPanel";
 import StatusBar from "./components/StatusBar";
+import { API_PROVIDERS, type ProviderId } from "./apiProviders";
 import type { AckMessage, GojiraInstance, HandshakePayload, PreviewResult, StatusEvent } from "./types";
 import { buildPromptFromChat, initialWorkspace, mergeParamLists, nowId, type ChatMessage, type HistoryEntry, type PickupPosition, type SavedSnapshot, type WorkspaceState } from "./workspace";
 import { summarizeAppliedDelta } from "./workspace";
@@ -17,7 +18,8 @@ const store: PrefsStore = {
 };
 
 export default function App() {
-  const [status, setStatus] = useState<StatusEvent>({ status: "connecting" });
+  const tauri = isTauriRuntime();
+  const [status, setStatus] = useState<StatusEvent>({ status: "connecting" });  
   const [instances, setInstances] = useState<GojiraInstance[]>([]);
   const [selectedFxGuid, setSelectedFxGuid] = useState<string>("");
   const [validationReport, setValidationReport] = useState<Record<string, string>>({});
@@ -34,11 +36,18 @@ export default function App() {
   const [pickupActive, setPickupActive] = useState<PickupPosition | null>(null);
 
   const [vaultPassphrase, setVaultPassphrase] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeyPresent, setApiKeyPresent] = useState<boolean | null>(null);     
+  const [apiProvider, setApiProvider] = useState<ProviderId>("gemini");
+  const [apiModel, setApiModel] = useState("");
+  const [apiKeyDrafts, setApiKeyDrafts] = useState<Record<ProviderId, string>>(
+    {} as Record<ProviderId, string>,
+  );
+  const [apiKeyPresence, setApiKeyPresence] = useState<Record<ProviderId, boolean>>(
+    {} as Record<ProviderId, boolean>,
+  );
+  const [credentialsLoaded, setCredentialsLoaded] = useState(false);
 
   const [busy, setBusy] = useState(false);
-  const [previewOnly, setPreviewOnly] = useState(true);
+  const [previewOnly, setPreviewOnly] = useState(false);
   const [refineEnabled, setRefineEnabled] = useState(true);
   const [tab, setTab] = useState<"preview" | "qc" | "mapping">("preview");
   const [composer, setComposer] = useState("Make me a dry modern djent rhythm tone.");
@@ -64,7 +73,7 @@ export default function App() {
     workspaceRef.current = workspace;
   }, [workspace]);
 
-  const storeRef = useRef<PrefsStore | null>(null);
+  const providerIds = useMemo<ProviderId[]>(() => API_PROVIDERS.map((p) => p.id), []);
 
   const pendingApplyIdRef = useRef<string | null>(null);
   const [pendingApplyCommandId, setPendingApplyCommandId] = useState<string | null>(null);
@@ -121,6 +130,26 @@ export default function App() {
     commit(s.state, { label: `restore: ${s.label}` });
     setTab("preview");
     clearPendingApply();
+  }
+
+  async function applySnapshot(s: SavedSnapshot) {
+    if (!selectedFxGuid) return;
+    const params = s.state.preview?.params ?? null;
+    if (!params?.length) return;
+
+    setBusy(true);
+    try {
+      const commandId = await invoke<string>("apply_tone", {
+        targetFxGuid: selectedFxGuid,
+        mode: s.state.lastGenMode ?? "merge",
+        params,
+      });
+      pendingApplyIdRef.current = commandId;
+      setPendingApplyCommandId(commandId);
+      setTab("qc");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const selectedInstance = useMemo(
@@ -219,6 +248,14 @@ export default function App() {
           entries: Object.entries(normalized).map(([from, to]) => ({ from: Number(from), to: Number(to) })),
         });
       }
+
+      const storedProvider = (await store.get<string>("llm_provider_v1")) ?? "gemini";
+      const provider = API_PROVIDERS.find((p) => p.id === storedProvider)?.id ?? "gemini";
+      setApiProvider(provider as ProviderId);
+
+      const storedModel = (await store.get<string>("llm_model_v1")) ?? "";
+      setApiModel(storedModel);
+      setCredentialsLoaded(true);
     })();
 
     return () => {
@@ -251,6 +288,22 @@ export default function App() {
     })();
   }, [selectedFxGuid]);
 
+  useEffect(() => {
+    if (!credentialsLoaded) return;
+    void (async () => {
+      await store.set("llm_provider_v1", apiProvider);
+      await store.save();
+    })();
+  }, [apiProvider, credentialsLoaded]);
+
+  useEffect(() => {
+    if (!credentialsLoaded) return;
+    void (async () => {
+      await store.set("llm_model_v1", apiModel);
+      await store.save();
+    })();
+  }, [apiModel, credentialsLoaded]);
+
   const pickupSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (pickupSaveTimer.current) clearTimeout(pickupSaveTimer.current);
@@ -271,29 +324,41 @@ export default function App() {
 
   async function unlockVault() {
     if (!isTauriRuntime()) {
-      setApiKeyPresent(null);
+      setApiKeyPresence({} as Record<ProviderId, boolean>);
       return;
     }
     await invoke("set_vault_passphrase", { passphrase: vaultPassphrase });
     try {
-      const ok = await invoke<boolean>("has_api_key");
-      setApiKeyPresent(ok);
+      const presence = await invoke<Record<string, boolean>>("list_api_key_presence", {
+        providers: providerIds,
+      });
+      const normalized: Record<ProviderId, boolean> = {} as Record<ProviderId, boolean>;
+      for (const id of providerIds) {
+        normalized[id] = !!(presence as Record<string, boolean>)[id];
+      }
+      setApiKeyPresence(normalized);
     } catch {
-      setApiKeyPresent(null);
+      setApiKeyPresence({} as Record<ProviderId, boolean>);
     }
   }
 
-  async function saveKey() {
-    if (!isTauriRuntime()) return;
-    await invoke("save_api_key", { apiKey });
-    setApiKey("");
-    setApiKeyPresent(true);
+  function setApiKeyDraft(provider: ProviderId, value: string) {
+    setApiKeyDrafts((prev) => ({ ...prev, [provider]: value }));
   }
 
-  async function clearKey() {
+  async function saveKey(provider: ProviderId) {
     if (!isTauriRuntime()) return;
-    await invoke("clear_api_key");
-    setApiKeyPresent(false);
+    const value = (apiKeyDrafts[provider] ?? "").trim();
+    if (!value) return;
+    await invoke("save_api_key", { provider, apiKey: value });
+    setApiKeyDrafts((prev) => ({ ...prev, [provider]: "" }));
+    setApiKeyPresence((prev) => ({ ...prev, [provider]: true }));
+  }
+
+  async function clearKey(provider: ProviderId) {
+    if (!isTauriRuntime()) return;
+    await invoke("clear_api_key", { provider });
+    setApiKeyPresence((prev) => ({ ...prev, [provider]: false }));
   }
 
   const refineDisabled = !workspace.workingParams?.length;
@@ -314,7 +379,7 @@ export default function App() {
   }, [workspace.lastAck]);
 
   async function send() {
-    if (!selectedFxGuid) return;
+    if (!tauri) return;
     const userText = composer.trim();
     if (!userText) return;
 
@@ -325,6 +390,8 @@ export default function App() {
     setComposer("");
 
     const mode: "merge" | "replace_active" = refineActive ? "merge" : "replace_active";
+    const noTargetSelected = !selectedFxGuid;
+    const effectivePreviewOnly = previewOnly || noTargetSelected;
 
     setBusy(true);
     try {
@@ -344,11 +411,13 @@ export default function App() {
       });
 
       const res = await invoke<PreviewResult>("generate_tone", {
-        targetFxGuid: selectedFxGuid,
+        targetFxGuid: selectedFxGuid || "preview",
         prompt,
-        previewOnly,
+        previewOnly: effectivePreviewOnly,
         mode,
         baseParams: refineActive ? base.workingParams : null,
+        provider: apiProvider,
+        model: apiModel.trim() || null,
       });
 
       const assistantMsg: ChatMessage = {
@@ -357,6 +426,15 @@ export default function App() {
         ts: Date.now(),
         content: res.reasoning || "(no reasoning)",
       };
+      const noTargetMsg: ChatMessage | null =
+        !previewOnly && noTargetSelected
+          ? {
+              id: nowId("m"),
+              role: "assistant",
+              ts: Date.now(),
+              content: "No REAPER Gojira target is selected; generated in Preview-only mode.",
+            }
+          : null;
 
       const nextWorking = (() => {
         if (!res.params?.length) return base.workingParams;
@@ -369,7 +447,7 @@ export default function App() {
       commit(
         {
           ...base,
-          chat: [...chatAfterUser, assistantMsg],
+          chat: noTargetMsg ? [...chatAfterUser, noTargetMsg, assistantMsg] : [...chatAfterUser, assistantMsg],
           preview: res,
           lastGenMode: mode,
           workingParams: nextWorking ?? null,
@@ -432,9 +510,14 @@ export default function App() {
           refineDisabled={refineDisabled}
           vaultPassphrase={vaultPassphrase}
           setVaultPassphrase={setVaultPassphrase}
-          apiKey={apiKey}
-          setApiKey={setApiKey}
-          apiKeyPresent={apiKeyPresent}
+          providers={API_PROVIDERS}
+          apiProvider={apiProvider}
+          setApiProvider={setApiProvider}
+          apiModel={apiModel}
+          setApiModel={setApiModel}
+          apiKeyDrafts={apiKeyDrafts}
+          setApiKeyDraft={setApiKeyDraft}
+          apiKeyPresence={apiKeyPresence}
           onUnlockVault={unlockVault}
           onSaveKey={saveKey}
           onClearKey={clearKey}
@@ -448,6 +531,7 @@ export default function App() {
           setPickupActive={setPickupActive}
           snapshots={snapshots}
           onRestoreSnapshot={restoreSnapshot}
+          onApplySnapshot={applySnapshot}
         />
 
         <ChatPanel
@@ -456,7 +540,7 @@ export default function App() {
           setComposer={setComposer}
           busy={busy}
           refineActive={refineActive}
-          canSend={!!selectedFxGuid}
+          canSend={tauri}
           canApply={!!selectedFxGuid && !!workspace.preview}
           pendingApply={!!pendingApplyCommandId}
           onSend={send}

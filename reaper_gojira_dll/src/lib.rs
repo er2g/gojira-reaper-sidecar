@@ -5,8 +5,11 @@ mod reaper_api;
 mod resolver;
 mod validator;
 
-use crate::main_loop::MainLoop;
-use crate::net::NetworkThread;
+pub use crate::main_loop::MainLoop;
+pub use crate::net::NetworkThread;
+pub use crate::reaper_api::ReaperApi;
+pub use crate::protocol::{INBOUND_CAP, OUTBOUND_CAP};
+
 use crate::protocol::{OutboundMsg, ServerMessage};
 use crate::reaper_api::ReaperApiImpl;
 use c_str_macro::c_str;

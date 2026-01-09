@@ -4,6 +4,23 @@ use tauri::Manager;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
+fn normalize_provider(provider: &str) -> String {
+    let cleaned: String = provider
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .collect();
+    if cleaned.is_empty() {
+        "gemini".to_string()
+    } else {
+        cleaned.to_ascii_lowercase()
+    }
+}
+
+fn provider_key(provider: &str) -> Vec<u8> {
+    format!("api_key::{}", normalize_provider(provider)).into_bytes()
+}
+
 #[derive(Debug, Error)]
 pub enum VaultError {
     #[error("io error: {0}")]
@@ -32,6 +49,7 @@ pub fn vault_paths<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<Vault
 pub fn load_api_key<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     passphrase: &str,
+    provider: &str,
 ) -> Result<Option<String>, VaultError> {
     let paths = vault_paths(app)?;
     let key = tauri_plugin_stronghold::kdf::KeyDerivation::argon2(passphrase, &paths.salt_path);
@@ -42,7 +60,7 @@ pub fn load_api_key<R: tauri::Runtime>(
         .map_err(tauri_plugin_stronghold::stronghold::Error::from)?;
     let maybe = client
         .store()
-        .get("gemini_api_key".as_bytes())
+        .get(&provider_key(provider))
         .map_err(tauri_plugin_stronghold::stronghold::Error::from)?;
     Ok(maybe.map(|bytes| String::from_utf8_lossy(&bytes).to_string()))
 }
@@ -50,6 +68,7 @@ pub fn load_api_key<R: tauri::Runtime>(
 pub fn save_api_key<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     passphrase: &str,
+    provider: &str,
     api_key: &str,
 ) -> Result<(), VaultError> {
     let paths = vault_paths(app)?;
@@ -63,7 +82,7 @@ pub fn save_api_key<R: tauri::Runtime>(
     let _ = client
         .store()
         .insert(
-            "gemini_api_key".as_bytes().to_vec(),
+            provider_key(provider),
             secret.to_vec(),
             None,
         )
@@ -75,6 +94,7 @@ pub fn save_api_key<R: tauri::Runtime>(
 pub fn clear_api_key<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     passphrase: &str,
+    provider: &str,
 ) -> Result<(), VaultError> {
     let paths = vault_paths(app)?;
     let key = tauri_plugin_stronghold::kdf::KeyDerivation::argon2(passphrase, &paths.salt_path);
@@ -85,9 +105,8 @@ pub fn clear_api_key<R: tauri::Runtime>(
         .map_err(tauri_plugin_stronghold::stronghold::Error::from)?;
     let _ = client
         .store()
-        .delete("gemini_api_key".as_bytes())
+        .delete(&provider_key(provider))
         .map_err(tauri_plugin_stronghold::stronghold::Error::from)?;
     stronghold.save()?;
     Ok(())
 }
-
