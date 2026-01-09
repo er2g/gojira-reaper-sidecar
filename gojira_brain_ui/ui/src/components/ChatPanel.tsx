@@ -75,6 +75,14 @@ export default function ChatPanel(props: {
           <textarea
             value={props.composer}
             onChange={(e) => props.setComposer(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              if (e.shiftKey) return;
+              e.preventDefault();
+              if (props.busy) return;
+              if (!props.canSend) return;
+              props.onSend();
+            }}
             placeholder='Ask for a specific tone… or tweak the current one (e.g. "törpüle biraz, high-mid daha az, gate biraz daha az").'
           />
           <div className="composerActions">

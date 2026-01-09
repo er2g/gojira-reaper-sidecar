@@ -110,6 +110,12 @@ body::before {
   min-height: 0;
 }
 
+.panel.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .panelHeader {
   display: flex;
   align-items: center;
@@ -303,7 +309,7 @@ textarea {
 .chatWrap {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   min-height: 0;
 }
 
