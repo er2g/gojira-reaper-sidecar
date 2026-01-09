@@ -3,6 +3,7 @@ import type { ApiProviderOption, ProviderId } from "../apiProviders";
 import type { GojiraInstance } from "../types";
 import type { PickupPosition, SavedSnapshot } from "../workspace";
 import { formatTime } from "../workspace";
+import type { ChatSessionMeta } from "../chatArchive";
 
 export default function SidebarPanel(props: {
   status: "connecting" | "connected" | "disconnected";
@@ -11,13 +12,18 @@ export default function SidebarPanel(props: {
   setSelectedFxGuid: (v: string) => void;
   selectedInstance: GojiraInstance | null;
 
+  chats: ChatSessionMeta[];
+  activeChatId: string;
+  onNewChatSession: () => void;
+  onOpenChatSession: (id: string) => void;
+  onDeleteChatSession: (id: string) => void;
+
   cursor: number;
   historyLen: number;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
-  onNewChat: () => void;
 
   previewOnly: boolean;
   setPreviewOnly: (v: boolean) => void;
@@ -97,7 +103,7 @@ export default function SidebarPanel(props: {
               Redo
             </button>
           </div>
-          <button className="btn" type="button" onClick={props.onNewChat}>
+          <button className="btn" type="button" onClick={props.onNewChatSession}>
             New chat
           </button>
         </div>
@@ -105,6 +111,54 @@ export default function SidebarPanel(props: {
         <div className="muted" style={{ marginTop: 8 }}>
           Timeline: {props.cursor + 1}/{props.historyLen}
         </div>
+
+        {props.chats.length ? (
+          <>
+            <div className="divider" />
+            <div className="muted" style={{ marginBottom: 8 }}>
+              Chats
+            </div>
+            <div className="diffList" style={{ maxHeight: 220, overflow: "auto" }}>
+              {props.chats.map((c) => (
+                <div
+                  key={c.id}
+                  className="diffRow"
+                  style={{
+                    alignItems: "center",
+                    opacity: c.id === props.activeChatId ? 1 : 0.9,
+                    border: c.id === props.activeChatId ? "1px solid rgba(255,255,255,0.18)" : undefined,
+                  }}
+                >
+                  <div className="diffLabel">
+                    {c.title || "Untitled chat"}
+                    <div className="muted" style={{ marginTop: 4 }}>
+                      {formatTime(c.updatedAt || c.createdAt)}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={c.id === props.activeChatId}
+                      onClick={() => props.onOpenChatSession(c.id)}
+                    >
+                      Open
+                    </button>
+                    <button
+                      className="btn danger"
+                      type="button"
+                      disabled={props.chats.length <= 1 && c.id === props.activeChatId}
+                      title={props.chats.length <= 1 && c.id === props.activeChatId ? "Cannot delete the last chat." : "Delete chat"}
+                      onClick={() => props.onDeleteChatSession(c.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
 
         <div className="divider" />
 

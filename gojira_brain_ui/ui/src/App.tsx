@@ -4,9 +4,19 @@ import InspectorPanel from "./components/InspectorPanel";
 import SidebarPanel from "./components/SidebarPanel";
 import StatusBar from "./components/StatusBar";
 import { API_PROVIDERS, type ProviderId } from "./apiProviders";
+import type { ChatSessionMeta, ChatSessionDataV1 } from "./chatArchive";
+import {
+  CHAT_ACTIVE_KEY_V1,
+  CHAT_INDEX_KEY_V1,
+  CHAT_SESSION_KEY_PREFIX_V1,
+  MAX_SESSIONS,
+  clampSessionData,
+  summarizeTitle,
+} from "./chatArchive";
 import type { AckMessage, GojiraInstance, HandshakePayload, PreviewResult, StatusEvent } from "./types";
 import { buildPromptFromChat, initialWorkspace, mergeParamLists, nowId, type ChatMessage, type HistoryEntry, type PickupPosition, type SavedSnapshot, type WorkspaceState } from "./workspace";
 import { summarizeAppliedDelta } from "./workspace";
+import { getChatStore, type ChatStore } from "./platform/chatStore";
 import { getPrefsStore, type PrefsStore } from "./platform/prefsStore";
 import { isTauriRuntime, tauriInvoke as invoke, tauriListen as listen } from "./platform/tauri";
 
@@ -52,6 +62,12 @@ export default function App() {
   const [tab, setTab] = useState<"preview" | "qc" | "mapping">("preview");
   const [composer, setComposer] = useState("Make me a dry modern djent rhythm tone.");
 
+  const [chatStoreReady, setChatStoreReady] = useState(false);
+  const chatStoreRef = useRef<ChatStore | null>(null);
+  const [chats, setChats] = useState<ChatSessionMeta[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string>("");
+  const chatSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [history, setHistory] = useState<HistoryEntry[]>(() => {
     const st = initialWorkspace();
     return [{ ts: Date.now(), label: "init", anchorMessageId: st.chat[0]?.id, state: st }];
@@ -78,6 +94,97 @@ export default function App() {
   const pendingApplyIdRef = useRef<string | null>(null);
   const [pendingApplyCommandId, setPendingApplyCommandId] = useState<string | null>(null);
 
+  function newSessionId() {
+    return nowId("chat");
+  }
+
+  function buildSessionData(meta: ChatSessionMeta): ChatSessionDataV1 {
+    return clampSessionData({
+      version: 1,
+      id: meta.id,
+      title: meta.title,
+      createdAt: meta.createdAt,
+      updatedAt: meta.updatedAt,
+      history,
+      cursor,
+      snapshots,
+      composer,
+    });
+  }
+
+  function applySessionData(data: ChatSessionDataV1) {
+    setHistory(data.history);
+    setCursor(Math.min(Math.max(0, data.cursor), Math.max(0, data.history.length - 1)));
+    setSnapshots(data.snapshots ?? []);
+    setComposer(data.composer ?? "");
+    setTab("preview");
+    clearPendingApply();
+  }
+
+  async function loadChatIndex(chatStore: ChatStore): Promise<ChatSessionMeta[]> {
+    const idx = (await chatStore.get<ChatSessionMeta[]>(CHAT_INDEX_KEY_V1)) ?? [];
+    return idx
+      .filter((c) => !!c?.id)
+      .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+      .slice(0, MAX_SESSIONS);
+  }
+
+  async function loadChatSession(chatStore: ChatStore, id: string): Promise<ChatSessionDataV1 | null> {
+    const key = CHAT_SESSION_KEY_PREFIX_V1 + id;
+    const raw = await chatStore.get<any>(key);
+    if (!raw || raw.version !== 1) return null;
+    return clampSessionData(raw as ChatSessionDataV1);
+  }
+
+  async function persistChatIndex(chatStore: ChatStore, next: ChatSessionMeta[]) {
+    const trimmed = next
+      .filter((c) => !!c?.id)
+      .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+      .slice(0, MAX_SESSIONS);
+    setChats(trimmed);
+    await chatStore.set(CHAT_INDEX_KEY_V1, trimmed);
+  }
+
+  async function saveActiveChatNow(opts?: { forceUpdatedAt?: number }) {
+    const chatStore = chatStoreRef.current;
+    if (!chatStore || !chatStoreReady || !activeChatId) return;
+
+    const idx = chats.slice();
+    const now = opts?.forceUpdatedAt ?? Date.now();
+    const existing = idx.find((c) => c.id === activeChatId);
+    const createdAt = existing?.createdAt ?? now;
+
+    const meta: ChatSessionMeta = {
+      id: activeChatId,
+      title: (existing?.title ?? "").trim() || "Untitled chat",
+      createdAt,
+      updatedAt: now,
+    };
+
+    const data = buildSessionData(meta);
+    const suggested = summarizeTitle(data);
+    if (!meta.title || meta.title === "Untitled chat" || meta.title.startsWith("Chat ")) {
+      meta.title = suggested;
+      data.title = suggested;
+    }
+
+    await chatStore.set(CHAT_SESSION_KEY_PREFIX_V1 + activeChatId, data);
+
+    const nextIdx = idx.filter((c) => c.id !== activeChatId);
+    nextIdx.unshift(meta);
+    await persistChatIndex(chatStore, nextIdx);
+    await chatStore.set(CHAT_ACTIVE_KEY_V1, activeChatId);
+    await chatStore.save();
+  }
+
+  function scheduleAutosave() {
+    if (!chatStoreReady || !activeChatId) return;
+    if (chatSaveTimer.current) clearTimeout(chatSaveTimer.current);
+    chatSaveTimer.current = setTimeout(() => {
+      void saveActiveChatNow();
+    }, 600);
+  }
+
   function commit(next: WorkspaceState, meta: { label: string; anchorMessageId?: string }) {
     const idx = cursorRef.current;
     setHistory((prev) => {
@@ -102,12 +209,72 @@ export default function App() {
     clearPendingApply();
   }
 
-  function newChat() {
+  async function newChatSession() {
+    const chatStore = chatStoreRef.current;
+    if (!chatStore) return;
+
+    await saveActiveChatNow();
+
+    const id = newSessionId();
+    const now = Date.now();
+    const meta: ChatSessionMeta = { id, title: "Untitled chat", createdAt: now, updatedAt: now };
     const st = initialWorkspace();
-    commit(st, { label: "new chat", anchorMessageId: st.chat[0]?.id });
-    setComposer("");
-    setTab("preview");
-    clearPendingApply();
+    const initialHistory: HistoryEntry[] = [{ ts: now, label: "init", anchorMessageId: st.chat[0]?.id, state: st }];
+    const data: ChatSessionDataV1 = clampSessionData({
+      version: 1,
+      ...meta,
+      history: initialHistory,
+      cursor: 0,
+      snapshots: [],
+      composer: "",
+    });
+
+    setActiveChatId(id);
+    applySessionData(data);
+
+    // Persist immediately so the new chat appears in the list even before the first message.
+    await chatStore.set(CHAT_SESSION_KEY_PREFIX_V1 + id, data);
+    const nextIdx = [meta, ...chats].slice(0, MAX_SESSIONS);
+    await persistChatIndex(chatStore, nextIdx);
+    await chatStore.set(CHAT_ACTIVE_KEY_V1, id);
+    await chatStore.save();
+  }
+
+  async function openChatSession(id: string) {
+    const chatStore = chatStoreRef.current;
+    if (!chatStore) return;
+    if (!id || id === activeChatId) return;
+
+    await saveActiveChatNow();
+    const data = await loadChatSession(chatStore, id);
+    if (!data) return;
+    setActiveChatId(id);
+    applySessionData(data);
+    await chatStore.set(CHAT_ACTIVE_KEY_V1, id);
+    await chatStore.save();
+  }
+
+  async function deleteChatSession(id: string) {
+    const chatStore = chatStoreRef.current;
+    if (!chatStore) return;
+    if (!id) return;
+
+    const nextIdx = chats.filter((c) => c.id !== id);
+    await chatStore.delete(CHAT_SESSION_KEY_PREFIX_V1 + id);
+    await persistChatIndex(chatStore, nextIdx);
+
+    if (id === activeChatId) {
+      const next = nextIdx[0]?.id ?? "";
+      setActiveChatId(next);
+      if (next) {
+        const data = await loadChatSession(chatStore, next);
+        if (data) applySessionData(data);
+        await chatStore.set(CHAT_ACTIVE_KEY_V1, next);
+      } else {
+        await newChatSession();
+      }
+      await chatStore.save();
+    }
   }
 
   function jumpToMessage(messageId: string) {
@@ -273,6 +440,58 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
+      const chatStore = await getChatStore();
+      chatStoreRef.current = chatStore;
+
+      const idx = await loadChatIndex(chatStore);
+      setChats(idx);
+
+      let active = (await chatStore.get<string>(CHAT_ACTIVE_KEY_V1)) ?? "";
+      if (!active && idx.length) active = idx[0].id;
+
+      if (!active) {
+        const id = newSessionId();
+        const now = Date.now();
+        const meta: ChatSessionMeta = { id, title: "Untitled chat", createdAt: now, updatedAt: now };
+        const st = initialWorkspace();
+        const data: ChatSessionDataV1 = {
+          version: 1,
+          ...meta,
+          history: [{ ts: now, label: "init", anchorMessageId: st.chat[0]?.id, state: st }],
+          cursor: 0,
+          snapshots: [],
+          composer: "",
+        };
+        await chatStore.set(CHAT_SESSION_KEY_PREFIX_V1 + id, data);
+        await persistChatIndex(chatStore, [meta]);
+        await chatStore.set(CHAT_ACTIVE_KEY_V1, id);
+        await chatStore.save();
+        setActiveChatId(id);
+        applySessionData(data);
+        setChatStoreReady(true);
+        return;
+      }
+
+      const data = await loadChatSession(chatStore, active);
+      if (data) {
+        setActiveChatId(active);
+        applySessionData(data);
+      } else if (idx.length) {
+        setActiveChatId(idx[0].id);
+        const data2 = await loadChatSession(chatStore, idx[0].id);
+        if (data2) applySessionData(data2);
+      }
+
+      setChatStoreReady(true);
+    })();
+
+    return () => {
+      if (chatSaveTimer.current) clearTimeout(chatSaveTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
       const toStore: Record<string, number> = {};
       for (const [from, to] of Object.entries(indexRemap)) {
         toStore[from] = to;
@@ -294,6 +513,10 @@ export default function App() {
       await store.save();
     })();
   }, [selectedFxGuid]);
+
+  useEffect(() => {
+    scheduleAutosave();
+  }, [chatStoreReady, activeChatId, history, cursor, snapshots, composer]);
 
   useEffect(() => {
     if (!credentialsLoaded) return;
@@ -505,13 +728,17 @@ export default function App() {
           selectedFxGuid={selectedFxGuid}
           setSelectedFxGuid={setSelectedFxGuid}
           selectedInstance={selectedInstance}
+          chats={chats}
+          activeChatId={activeChatId}
+          onNewChatSession={() => void newChatSession()}
+          onOpenChatSession={(id) => void openChatSession(id)}
+          onDeleteChatSession={(id) => void deleteChatSession(id)}
           cursor={cursor}
           historyLen={history.length}
           canUndo={canUndo}
           canRedo={canRedo}
           onUndo={undo}
           onRedo={redo}
-          onNewChat={newChat}
           previewOnly={previewOnly}
           setPreviewOnly={setPreviewOnly}
           refineEnabled={refineEnabled}
