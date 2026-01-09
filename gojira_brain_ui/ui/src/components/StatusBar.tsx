@@ -21,20 +21,30 @@ export default function StatusBar({ status }: { status: StatusEvent }) {
           className="dot"
           style={{ backgroundColor: dotColor[status.status] }}
         />
-        <span className="statusText">
-          {status.status === "connected"
-            ? "Connected to Reaper"
-            : status.status === "connecting"
-              ? "Connecting..."
-              : `Disconnected${retryText}`}
-        </span>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <span className="statusText">
+            {status.status === "connected"
+              ? "Connected to Reaper"
+              : status.status === "connecting"
+                ? "Connecting..."
+                : `Disconnected${retryText}`}
+          </span>
+          {status.status === "disconnected" ? (
+            <span className="muted" style={{ fontSize: 12 }}>
+              Tip: REAPER loads extension DLLs on startup. If you installed/updated the DLL while REAPER was open, restart REAPER.
+            </span>
+          ) : null}
+        </div>
       </div>
       <div className="statusRight">
         <button
           className="btn"
           onClick={() => {
             if (!isTauriRuntime()) return;
-            void invoke("connect_ws");
+            void (async () => {
+              try { await invoke("disconnect_ws"); } catch {}
+              try { await invoke("connect_ws"); } catch {}
+            })();
           }}
           type="button"
           disabled={!isTauriRuntime()}
