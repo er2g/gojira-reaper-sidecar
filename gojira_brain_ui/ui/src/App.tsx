@@ -133,14 +133,15 @@ export default function App() {
   }
 
   async function applySnapshot(s: SavedSnapshot) {
-    if (!selectedFxGuid) return;
+    const effectiveFxGuid = selectedInstance?.fx_guid ?? instances[0]?.fx_guid ?? "";
+    if (!effectiveFxGuid) return;
     const params = s.state.preview?.params ?? null;
     if (!params?.length) return;
 
     setBusy(true);
     try {
       const commandId = await invoke<string>("apply_tone", {
-        targetFxGuid: selectedFxGuid,
+        targetFxGuid: effectiveFxGuid,
         mode: s.state.lastGenMode ?? "merge",
         params,
       });
@@ -156,6 +157,12 @@ export default function App() {
     () => instances.find((i) => i.fx_guid === selectedFxGuid) ?? null,
     [instances, selectedFxGuid],
   );
+
+  useEffect(() => {
+    if (!instances.length) return;
+    if (selectedFxGuid && instances.some((i) => i.fx_guid === selectedFxGuid)) return;
+    setSelectedFxGuid(instances[0]?.fx_guid ?? "");
+  }, [instances]);
 
   useEffect(() => {
     let unlistenFns: Array<() => void> = [];
@@ -383,6 +390,7 @@ export default function App() {
     const userText = composer.trim();
     if (!userText) return;
 
+    const effectiveFxGuid = selectedInstance?.fx_guid ?? instances[0]?.fx_guid ?? "";
     const base = workspaceRef.current;
     const userMsg: ChatMessage = { id: nowId("m"), role: "user", ts: Date.now(), content: userText };
     const chatAfterUser = [...base.chat, userMsg];
@@ -390,7 +398,7 @@ export default function App() {
     setComposer("");
 
     const mode: "merge" | "replace_active" = refineActive ? "merge" : "replace_active";
-    const noTargetSelected = !selectedFxGuid;
+    const noTargetSelected = !effectiveFxGuid;
     const effectivePreviewOnly = previewOnly || noTargetSelected;
 
     setBusy(true);
@@ -411,7 +419,7 @@ export default function App() {
       });
 
       const res = await invoke<PreviewResult>("generate_tone", {
-        targetFxGuid: selectedFxGuid || "preview",
+        targetFxGuid: effectiveFxGuid || "preview",
         prompt,
         previewOnly: effectivePreviewOnly,
         mode,
@@ -470,11 +478,12 @@ export default function App() {
 
   async function apply() {
     const w = workspaceRef.current;
-    if (!w.preview || !selectedFxGuid) return;
+    const effectiveFxGuid = selectedInstance?.fx_guid ?? instances[0]?.fx_guid ?? "";
+    if (!w.preview || !effectiveFxGuid) return;
     setBusy(true);
     try {
       const commandId = await invoke<string>("apply_tone", {
-        targetFxGuid: selectedFxGuid,
+        targetFxGuid: effectiveFxGuid,
         mode: w.lastGenMode,
         params: w.preview.params,
       });
@@ -541,7 +550,7 @@ export default function App() {
           busy={busy}
           refineActive={refineActive}
           canSend={tauri}
-          canApply={!!selectedFxGuid && !!workspace.preview}
+          canApply={!!(selectedInstance?.fx_guid ?? instances[0]?.fx_guid) && !!workspace.preview}
           pendingApply={!!pendingApplyCommandId}
           onSend={send}
           onApply={apply}
