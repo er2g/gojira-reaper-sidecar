@@ -372,6 +372,7 @@ textarea {
   justify-content: space-between;
   gap: 10px;
   margin-top: 10px;
+  flex-wrap: wrap;
 }
 
 .segmented {
@@ -381,6 +382,36 @@ textarea {
   border-radius: 999px;
   border: 1px solid var(--border);
   background: rgba(8, 10, 16, 0.32);
+  flex: 1 1 auto;
+  min-width: 260px;
+}
+
+.composerButtons {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 640px) {
+  .segmented {
+    min-width: 100%;
+  }
+  .composerButtons {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 460px) {
+  .composerButtons {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+  .composerButtons .btn {
+    flex: 1 1 140px;
+  }
 }
 
 .segBtn {

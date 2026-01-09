@@ -102,7 +102,7 @@ export default function ChatPanel(props: {
               </button>
             </div>
 
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div className="composerButtons">
               <button className="btn primary" disabled={props.busy || !props.canSend} onClick={props.onSend} type="button">
                 {props.busy ? "Generating…" : "Send"}
               </button>
@@ -122,4 +122,3 @@ export default function ChatPanel(props: {
     </main>
   );
 }
-
