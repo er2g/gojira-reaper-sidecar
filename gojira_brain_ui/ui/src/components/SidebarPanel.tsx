@@ -63,9 +63,9 @@ export default function SidebarPanel(props: {
     <aside className="panel sidebar">
       <div className="panelHeader">
         <div className="panelTitle">
-          <h2>Session</h2>
+          <h2>Controls</h2>
           <div className="muted">
-            {props.instances.length ? `${props.instances.length} instance(s)` : "Waiting for REAPER…"}
+            {props.instances.length ? `${props.instances.length} plugin${props.instances.length > 1 ? 's' : ''} found` : "Waiting for REAPER..."}
           </div>
         </div>
         <span className="badge">{props.status}</span>
@@ -73,85 +73,117 @@ export default function SidebarPanel(props: {
 
       <div className="panelBody">
         <div className="row">
-          <label>Target</label>
-          <select value={props.selectedFxGuid} onChange={(e) => props.setSelectedFxGuid(e.target.value)}>
+          <label>Target Plugin</label>
+          <select
+            value={props.selectedFxGuid}
+            onChange={(e) => props.setSelectedFxGuid(e.target.value)}
+            aria-label="Select target Gojira plugin"
+          >
             {props.instances.map((i) => (
               <option key={i.fx_guid} value={i.fx_guid}>
-                {(i.track_name || "(Track)") + " — " + (i.fx_name || "Archetype Gojira")} ({i.confidence})
+                {(i.track_name || "Track") + " — " + (i.fx_name || "Archetype Gojira")}
               </option>
             ))}
           </select>
         </div>
 
         {props.selectedInstance ? (
-          <div className="muted">
-            <div>Track: {props.selectedInstance.track_name || "(unnamed)"}</div>
-            <div>FX: {props.selectedInstance.fx_name || "Archetype Gojira"}</div>
+          <div className="muted" style={{ marginTop: 6 }}>
+            <div>📍 {props.selectedInstance.track_name || "Unnamed track"}</div>
+            <div>🎸 {props.selectedInstance.fx_name || "Archetype Gojira"}</div>
           </div>
         ) : (
-          <div className="muted">Open a REAPER project with Archetype Gojira loaded.</div>
+          <div className="muted" style={{ marginTop: 6, padding: 8, background: 'rgba(255, 200, 100, 0.08)', borderRadius: 8, border: '1px solid rgba(255, 200, 100, 0.15)' }}>
+            ⚠️ Open a REAPER project with Archetype Gojira to get started
+          </div>
         )}
 
         <div className="divider" />
 
-        <div className="row" style={{ marginBottom: 0, justifyContent: "space-between" }}>
+        <h3 style={{ marginTop: 12, marginBottom: 10, fontSize: 13, fontWeight: 600 }}>History</h3>
+        <div className="row" style={{ marginBottom: 8, justifyContent: "space-between" }}>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn" disabled={!props.canUndo} type="button" onClick={props.onUndo}>
-              Undo
+            <button
+              className="btn"
+              disabled={!props.canUndo}
+              type="button"
+              onClick={props.onUndo}
+              title="Undo last action"
+              aria-label="Undo"
+            >
+              ← Undo
             </button>
-            <button className="btn" disabled={!props.canRedo} type="button" onClick={props.onRedo}>
-              Redo
+            <button
+              className="btn"
+              disabled={!props.canRedo}
+              type="button"
+              onClick={props.onRedo}
+              title="Redo last action"
+              aria-label="Redo"
+            >
+              Redo →
             </button>
           </div>
-          <button className="btn" type="button" onClick={props.onNewChatSession}>
-            New chat
+          <button
+            className="btn primary"
+            type="button"
+            onClick={props.onNewChatSession}
+            aria-label="Start new chat session"
+          >
+            + New Chat
           </button>
         </div>
 
-        <div className="muted" style={{ marginTop: 8 }}>
-          Timeline: {props.cursor + 1}/{props.historyLen}
+        <div className="muted" style={{ fontSize: 11, opacity: 0.7 }}>
+          Step {props.cursor + 1} of {props.historyLen}
         </div>
 
         {props.chats.length ? (
           <>
             <div className="divider" />
-            <div className="muted" style={{ marginBottom: 8 }}>
-              Chats
-            </div>
-            <div className="diffList" style={{ maxHeight: 220, overflow: "auto" }}>
+            <h3 style={{ marginTop: 12, marginBottom: 10, fontSize: 13, fontWeight: 600 }}>
+              Sessions ({props.chats.length})
+            </h3>
+            <div className="diffList" style={{ maxHeight: 200, overflow: "auto" }}>
               {props.chats.map((c) => (
                 <div
                   key={c.id}
                   className="diffRow"
                   style={{
                     alignItems: "center",
-                    opacity: c.id === props.activeChatId ? 1 : 0.9,
-                    border: c.id === props.activeChatId ? "1px solid rgba(255,255,255,0.18)" : undefined,
+                    opacity: c.id === props.activeChatId ? 1 : 0.85,
+                    border: c.id === props.activeChatId ? "1px solid rgba(110, 168, 255, 0.3)" : undefined,
+                    background: c.id === props.activeChatId ? "rgba(110, 168, 255, 0.05)" : undefined,
                   }}
                 >
-                  <div className="diffLabel">
-                    {c.title || "Untitled chat"}
-                    <div className="muted" style={{ marginTop: 4 }}>
+                  <div className="diffLabel" style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: c.id === props.activeChatId ? 600 : 400 }}>
+                      {c.title || "Untitled"}
+                    </div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: 11 }}>
                       {formatTime(c.updatedAt || c.createdAt)}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {c.id !== props.activeChatId && (
+                      <button
+                        className="btn btnSmall"
+                        type="button"
+                        onClick={() => props.onOpenChatSession(c.id)}
+                        aria-label={`Open ${c.title || 'Untitled'} chat`}
+                      >
+                        Open
+                      </button>
+                    )}
                     <button
-                      className="btn"
-                      type="button"
-                      disabled={c.id === props.activeChatId}
-                      onClick={() => props.onOpenChatSession(c.id)}
-                    >
-                      Open
-                    </button>
-                    <button
-                      className="btn danger"
+                      className="btn btnSmall danger"
                       type="button"
                       disabled={props.chats.length <= 1 && c.id === props.activeChatId}
-                      title={props.chats.length <= 1 && c.id === props.activeChatId ? "Cannot delete the last chat." : "Delete chat"}
+                      title={props.chats.length <= 1 && c.id === props.activeChatId ? "Cannot delete the last session" : "Delete session"}
                       onClick={() => props.onDeleteChatSession(c.id)}
+                      aria-label={`Delete ${c.title || 'Untitled'} chat`}
                     >
-                      Delete
+                      ✕
                     </button>
                   </div>
                 </div>
@@ -162,38 +194,46 @@ export default function SidebarPanel(props: {
 
         <div className="divider" />
 
-        <div className="row" style={{ marginBottom: 0 }}>
-          <label className="checkbox">
-            <input checked={props.previewOnly} onChange={(e) => props.setPreviewOnly(e.target.checked)} type="checkbox" />
-            Preview only
-          </label>
-        </div>
+        <h3 style={{ marginTop: 12, marginBottom: 10, fontSize: 13, fontWeight: 600 }}>Generation Mode</h3>
 
-        <div className="row" style={{ marginTop: 10 }}>
-          <label>Mode</label>
+        <div className="row" style={{ marginBottom: 10 }}>
           <div className="segmented" style={{ width: "100%", justifyContent: "space-between" }}>
             <button
               className={`segBtn ${!props.refineEnabled || props.refineDisabled ? "segBtnActive" : ""}`}
               type="button"
               onClick={() => props.setRefineEnabled(false)}
+              aria-label="New tone mode"
             >
-              New tone
+              🎸 New Tone
             </button>
             <button
               className={`segBtn ${props.refineEnabled && !props.refineDisabled ? "segBtnActive" : ""}`}
               type="button"
               disabled={props.refineDisabled}
               onClick={() => props.setRefineEnabled(true)}
-              title={props.refineDisabled ? "Generate at least one tone first" : "Refine current tone"}
+              title={props.refineDisabled ? "Generate at least one tone first" : "Tweak the current tone"}
+              aria-label="Tweak mode"
             >
-              Refine current
+              ✨ Tweak
             </button>
           </div>
         </div>
 
-        <details style={{ marginTop: 10 }}>
-          <summary className="muted" style={{ cursor: "pointer" }}>
-            Credentials / models
+        <div className="row" style={{ marginBottom: 0, alignItems: "flex-start" }}>
+          <label className="checkbox">
+            <input
+              checked={props.previewOnly}
+              onChange={(e) => props.setPreviewOnly(e.target.checked)}
+              type="checkbox"
+              aria-label="Preview only mode"
+            />
+            <span>Preview only (don't auto-apply)</span>
+          </label>
+        </div>
+
+        <details style={{ marginTop: 12 }}>
+          <summary className="muted" style={{ cursor: "pointer", fontWeight: 600 }}>
+            ⚙️ Advanced: AI Settings
           </summary>
           <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
             <div className="row">
@@ -272,9 +312,9 @@ export default function SidebarPanel(props: {
           </div>
         </details>
 
-        <details style={{ marginTop: 10 }}>
-          <summary className="muted" style={{ cursor: "pointer" }}>
-            Guitar / pickups
+        <details style={{ marginTop: 12 }}>
+          <summary className="muted" style={{ cursor: "pointer", fontWeight: 600 }}>
+            🎸 Advanced: Guitar Setup
           </summary>
           <div style={{ marginTop: 10 }}>
             <div className="row">
@@ -325,34 +365,48 @@ export default function SidebarPanel(props: {
         {props.snapshots.length ? (
           <>
             <div className="divider" />
-            <div className="muted" style={{ marginBottom: 8 }}>
-              Snapshots
-            </div>
-            <div className="diffList" style={{ maxHeight: 240, overflow: "auto" }}>
+            <h3 style={{ marginTop: 12, marginBottom: 10, fontSize: 13, fontWeight: 600 }}>
+              ★ Saved Snapshots ({props.snapshots.length})
+            </h3>
+            <div className="diffList" style={{ maxHeight: 220, overflow: "auto" }}>
               {props.snapshots.map((s) => (
-                <div key={s.id} className="diffRow" style={{ alignItems: "center" }}>
-                  <div className="diffLabel">
-                    {s.label}
-                    <div className="muted" style={{ marginTop: 4 }}>
+                <div
+                  key={s.id}
+                  className="diffRow"
+                  style={{
+                    alignItems: "center",
+                    background: "rgba(69, 255, 181, 0.03)",
+                    border: "1px solid rgba(69, 255, 181, 0.15)"
+                  }}
+                >
+                  <div className="diffLabel" style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 500 }}>{s.label}</div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: 11 }}>
                       {formatTime(s.ts)}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="btn" type="button" onClick={() => props.onRestoreSnapshot(s)}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      className="btn btnSmall"
+                      type="button"
+                      onClick={() => props.onRestoreSnapshot(s)}
+                      aria-label={`Load ${s.label} snapshot`}
+                    >
                       Load
                     </button>
                     <button
-                      className="btn"
+                      className="btn btnSmall btnApply"
                       type="button"
                       disabled={!props.selectedFxGuid || !s.state.preview?.params?.length}
                       title={
                         !props.selectedFxGuid
-                          ? "Select a target Gojira instance first."
+                          ? "Select a target Gojira plugin first"
                           : !s.state.preview?.params?.length
-                            ? "Snapshot has no preview params to apply."
-                            : "Apply snapshot params to REAPER."
+                            ? "Snapshot has no parameters to apply"
+                            : "Apply snapshot to REAPER"
                       }
                       onClick={() => props.onApplySnapshot(s)}
+                      aria-label={`Apply ${s.label} snapshot to REAPER`}
                     >
                       Apply
                     </button>

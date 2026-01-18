@@ -60,13 +60,14 @@ export default function App() {
   const [previewOnly, setPreviewOnly] = useState(false);
   const [refineEnabled, setRefineEnabled] = useState(true);
   const [tab, setTab] = useState<"preview" | "qc" | "mapping">("preview");
-  const [composer, setComposer] = useState("Make me a dry modern djent rhythm tone.");
+  const [composer, setComposer] = useState("Create a heavy modern djent rhythm tone");
 
   const [chatStoreReady, setChatStoreReady] = useState(false);
   const chatStoreRef = useRef<ChatStore | null>(null);
   const [chats, setChats] = useState<ChatSessionMeta[]>([]);
   const [activeChatId, setActiveChatId] = useState<string>("");
   const chatSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chatSavePending = useRef<Promise<void> | null>(null);
 
   const [history, setHistory] = useState<HistoryEntry[]>(() => {
     const st = initialWorkspace();
@@ -149,39 +150,53 @@ export default function App() {
     const chatStore = chatStoreRef.current;
     if (!chatStore || !chatStoreReady || !activeChatId) return;
 
-    const idx = chats.slice();
-    const now = opts?.forceUpdatedAt ?? Date.now();
-    const existing = idx.find((c) => c.id === activeChatId);
-    const createdAt = existing?.createdAt ?? now;
-
-    const meta: ChatSessionMeta = {
-      id: activeChatId,
-      title: (existing?.title ?? "").trim() || "Untitled chat",
-      createdAt,
-      updatedAt: now,
-    };
-
-    const data = buildSessionData(meta);
-    const suggested = summarizeTitle(data);
-    if (!meta.title || meta.title === "Untitled chat" || meta.title.startsWith("Chat ")) {
-      meta.title = suggested;
-      data.title = suggested;
+    // Wait for any pending save to complete first
+    if (chatSavePending.current) {
+      await chatSavePending.current;
     }
 
-    await chatStore.set(CHAT_SESSION_KEY_PREFIX_V1 + activeChatId, data);
+    // Create and track this save operation
+    const saveOperation = (async () => {
+      const idx = chats.slice();
+      const now = opts?.forceUpdatedAt ?? Date.now();
+      const existing = idx.find((c) => c.id === activeChatId);
+      const createdAt = existing?.createdAt ?? now;
 
-    const nextIdx = idx.filter((c) => c.id !== activeChatId);
-    nextIdx.unshift(meta);
-    await persistChatIndex(chatStore, nextIdx);
-    await chatStore.set(CHAT_ACTIVE_KEY_V1, activeChatId);
-    await chatStore.save();
+      const meta: ChatSessionMeta = {
+        id: activeChatId,
+        title: (existing?.title ?? "").trim() || "Untitled chat",
+        createdAt,
+        updatedAt: now,
+      };
+
+      const data = buildSessionData(meta);
+      const suggested = summarizeTitle(data);
+      if (!meta.title || meta.title === "Untitled chat" || meta.title.startsWith("Chat ")) {
+        meta.title = suggested;
+        data.title = suggested;
+      }
+
+      await chatStore.set(CHAT_SESSION_KEY_PREFIX_V1 + activeChatId, data);
+
+      const nextIdx = idx.filter((c) => c.id !== activeChatId);
+      nextIdx.unshift(meta);
+      await persistChatIndex(chatStore, nextIdx);
+      await chatStore.set(CHAT_ACTIVE_KEY_V1, activeChatId);
+      await chatStore.save();
+    })();
+
+    chatSavePending.current = saveOperation;
+    await saveOperation;
+    chatSavePending.current = null;
   }
 
   function scheduleAutosave() {
     if (!chatStoreReady || !activeChatId) return;
     if (chatSaveTimer.current) clearTimeout(chatSaveTimer.current);
     chatSaveTimer.current = setTimeout(() => {
-      void saveActiveChatNow();
+      void saveActiveChatNow().catch((err) => {
+        console.error("Error during autosave:", err);
+      });
     }, 600);
   }
 
@@ -335,101 +350,122 @@ export default function App() {
     let unlistenFns: Array<() => void> = [];
 
     (async () => {
-      const tauri = isTauriRuntime();
-      if (!tauri) setStatus({ status: "disconnected", retry_in: 0 });
+      try {
+        const tauri = isTauriRuntime();
+        if (!tauri) setStatus({ status: "disconnected", retry_in: 0 });
 
-      if (tauri) {
-        unlistenFns.push(await listen<StatusEvent>("reaper://status", (e) => setStatus(e.payload)));
+        if (tauri) {
+          unlistenFns.push(await listen<StatusEvent>("reaper://status", (e) => setStatus(e.payload)));
 
-      unlistenFns.push(
-        await listen<HandshakePayload>("reaper://handshake", async (e) => {
-          setInstances(e.payload.instances);
-          setValidationReport(e.payload.validation_report ?? {});
-          setParamEnums(e.payload.param_enums ?? {});
-          setParamFormats(e.payload.param_formats ?? {});
-          setParamFormatSamples(e.payload.param_format_samples ?? {});
+        unlistenFns.push(
+          await listen<HandshakePayload>("reaper://handshake", async (e) => {
+            try {
+              setInstances(e.payload.instances);
+              setValidationReport(e.payload.validation_report ?? {});
+              setParamEnums(e.payload.param_enums ?? {});
+              setParamFormats(e.payload.param_formats ?? {});
+              setParamFormatSamples(e.payload.param_format_samples ?? {});
 
-          const last = (await store.get<string>("last_target_fx_guid")) ?? "";
-          const next =
-            (last && e.payload.instances.find((x) => x.fx_guid === last)?.fx_guid) ??
-            e.payload.instances[0]?.fx_guid ??
-            "";
-          setSelectedFxGuid(next);
-          await store.set("last_target_fx_guid", next);
-          await store.save();
-        }),
-      );
+              const last = (await store.get<string>("last_target_fx_guid")) ?? "";
+              const next =
+                (last && e.payload.instances.find((x) => x.fx_guid === last)?.fx_guid) ??
+                e.payload.instances[0]?.fx_guid ??
+                "";
+              setSelectedFxGuid(next);
+              await store.set("last_target_fx_guid", next);
+              await store.save();
+            } catch (err) {
+              console.error("Error handling handshake:", err);
+            }
+          }),
+        );
 
-      unlistenFns.push(
-        await listen("reaper://project_changed", () => {
-          const w = workspaceRef.current;
-          commit({ ...w, preview: null, lastAck: null }, { label: "project changed" });
-          setTab("preview");
-          clearPendingApply();
-        }),
-      );
+        unlistenFns.push(
+          await listen("reaper://project_changed", () => {
+            try {
+              const w = workspaceRef.current;
+              commit({ ...w, preview: null, lastAck: null }, { label: "project changed" });
+              setTab("preview");
+              clearPendingApply();
+            } catch (err) {
+              console.error("Error handling project change:", err);
+            }
+          }),
+        );
 
-      unlistenFns.push(
-        await listen<AckMessage>("reaper://ack", (e) => {
-          const msg = e.payload;
-          if (pendingApplyIdRef.current && msg.command_id === pendingApplyIdRef.current) {
-            clearPendingApply();
-          }
-          const w = workspaceRef.current;
-          commit({ ...w, lastAck: msg }, { label: "ack" });
-          setTab("qc");
-        }),
-      );
+        unlistenFns.push(
+          await listen<AckMessage>("reaper://ack", (e) => {
+            try {
+              const msg = e.payload;
+              if (pendingApplyIdRef.current && msg.command_id === pendingApplyIdRef.current) {
+                clearPendingApply();
+              }
+              const w = workspaceRef.current;
+              commit({ ...w, lastAck: msg }, { label: "ack" });
+              setTab("qc");
+            } catch (err) {
+              console.error("Error handling ack:", err);
+            }
+          }),
+        );
 
-      unlistenFns.push(
-        await listen<any>("reaper://error", (e) => {
-          const msg = e.payload as { type?: string; msg?: string; code?: string };
-          const text = msg?.msg ? `REAPER error: ${msg.code ?? "error"} — ${msg.msg}` : "REAPER error";
-          const m: ChatMessage = { id: nowId("m"), role: "assistant", ts: Date.now(), content: text };
-          const w = workspaceRef.current;
-          commit({ ...w, chat: [...w.chat, m] }, { label: "reaper error", anchorMessageId: m.id });
-        }),
-      );
+        unlistenFns.push(
+          await listen<any>("reaper://error", (e) => {
+            try {
+              const msg = e.payload as { type?: string; msg?: string; code?: string };
+              const text = msg?.msg ? `REAPER error: ${msg.code ?? "error"} — ${msg.msg}` : "REAPER error";
+              const m: ChatMessage = { id: nowId("m"), role: "assistant", ts: Date.now(), content: text };
+              const w = workspaceRef.current;
+              commit({ ...w, chat: [...w.chat, m] }, { label: "reaper error", anchorMessageId: m.id });
+            } catch (err) {
+              console.error("Error handling REAPER error:", err);
+            }
+          }),
+        );
 
-        await invoke("connect_ws");
-      }
-
-      const pNeck = (await store.get<string>("pickup_neck_v1")) ?? "";
-      const pMiddle = (await store.get<string>("pickup_middle_v1")) ?? "";
-      const pBridge = (await store.get<string>("pickup_bridge_v1")) ?? "";
-      const pActive = ((await store.get<string>("pickup_active_v1")) ?? "").trim();
-      setPickupNeck(pNeck);
-      setPickupMiddle(pMiddle);
-      setPickupBridge(pBridge);
-      if (pActive === "neck" || pActive === "middle" || pActive === "bridge") {
-        setPickupActive(pActive as PickupPosition);
-      } else {
-        setPickupActive(null);
-      }
-
-      const saved = (await store.get<Record<string, number>>("index_remap_v1")) ?? {};
-      const normalized: Record<number, number> = {};
-      for (const [k, v] of Object.entries(saved)) {
-        const from = Number(k);
-        const to = Number(v);
-        if (Number.isFinite(from) && Number.isFinite(to) && from !== to) {
-          normalized[from] = to;
+          await invoke("connect_ws");
         }
-      }
-      setIndexRemap(normalized);
-      if (tauri) {
-        await invoke("set_index_remap", {
-          entries: Object.entries(normalized).map(([from, to]) => ({ from: Number(from), to: Number(to) })),
-        });
-      }
 
-      const storedProvider = (await store.get<string>("llm_provider_v1")) ?? "gemini";
-      const provider = API_PROVIDERS.find((p) => p.id === storedProvider)?.id ?? "gemini";
-      setApiProvider(provider as ProviderId);
+        const pNeck = (await store.get<string>("pickup_neck_v1")) ?? "";
+        const pMiddle = (await store.get<string>("pickup_middle_v1")) ?? "";
+        const pBridge = (await store.get<string>("pickup_bridge_v1")) ?? "";
+        const pActive = ((await store.get<string>("pickup_active_v1")) ?? "").trim();
+        setPickupNeck(pNeck);
+        setPickupMiddle(pMiddle);
+        setPickupBridge(pBridge);
+        if (pActive === "neck" || pActive === "middle" || pActive === "bridge") {
+          setPickupActive(pActive as PickupPosition);
+        } else {
+          setPickupActive(null);
+        }
 
-      const storedModel = (await store.get<string>("llm_model_v1")) ?? "";
-      setApiModel(storedModel);
-      setCredentialsLoaded(true);
+        const saved = (await store.get<Record<string, number>>("index_remap_v1")) ?? {};
+        const normalized: Record<number, number> = {};
+        for (const [k, v] of Object.entries(saved)) {
+          const from = Number(k);
+          const to = Number(v);
+          if (Number.isFinite(from) && Number.isFinite(to) && from !== to) {
+            normalized[from] = to;
+          }
+        }
+        setIndexRemap(normalized);
+        if (tauri) {
+          await invoke("set_index_remap", {
+            entries: Object.entries(normalized).map(([from, to]) => ({ from: Number(from), to: Number(to) })),
+          });
+        }
+
+        const storedProvider = (await store.get<string>("llm_provider_v1")) ?? "gemini";
+        const provider = API_PROVIDERS.find((p) => p.id === storedProvider)?.id ?? "gemini";
+        setApiProvider(provider as ProviderId);
+
+        const storedModel = (await store.get<string>("llm_model_v1")) ?? "";
+        setApiModel(storedModel);
+        setCredentialsLoaded(true);
+      } catch (err) {
+        console.error("Error during app initialization:", err);
+        setStatus({ status: "disconnected", retry_in: 0 });
+      }
     })();
 
     return () => {
@@ -440,49 +476,54 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
-      const chatStore = await getChatStore();
-      chatStoreRef.current = chatStore;
+      try {
+        const chatStore = await getChatStore();
+        chatStoreRef.current = chatStore;
 
-      const idx = await loadChatIndex(chatStore);
-      setChats(idx);
+        const idx = await loadChatIndex(chatStore);
+        setChats(idx);
 
-      let active = (await chatStore.get<string>(CHAT_ACTIVE_KEY_V1)) ?? "";
-      if (!active && idx.length) active = idx[0].id;
+        let active = (await chatStore.get<string>(CHAT_ACTIVE_KEY_V1)) ?? "";
+        if (!active && idx.length) active = idx[0].id;
 
-      if (!active) {
-        const id = newSessionId();
-        const now = Date.now();
-        const meta: ChatSessionMeta = { id, title: "Untitled chat", createdAt: now, updatedAt: now };
-        const st = initialWorkspace();
-        const data: ChatSessionDataV1 = {
-          version: 1,
-          ...meta,
-          history: [{ ts: now, label: "init", anchorMessageId: st.chat[0]?.id, state: st }],
-          cursor: 0,
-          snapshots: [],
-          composer: "",
-        };
-        await chatStore.set(CHAT_SESSION_KEY_PREFIX_V1 + id, data);
-        await persistChatIndex(chatStore, [meta]);
-        await chatStore.set(CHAT_ACTIVE_KEY_V1, id);
-        await chatStore.save();
-        setActiveChatId(id);
-        applySessionData(data);
+        if (!active) {
+          const id = newSessionId();
+          const now = Date.now();
+          const meta: ChatSessionMeta = { id, title: "Untitled chat", createdAt: now, updatedAt: now };
+          const st = initialWorkspace();
+          const data: ChatSessionDataV1 = {
+            version: 1,
+            ...meta,
+            history: [{ ts: now, label: "init", anchorMessageId: st.chat[0]?.id, state: st }],
+            cursor: 0,
+            snapshots: [],
+            composer: "",
+          };
+          await chatStore.set(CHAT_SESSION_KEY_PREFIX_V1 + id, data);
+          await persistChatIndex(chatStore, [meta]);
+          await chatStore.set(CHAT_ACTIVE_KEY_V1, id);
+          await chatStore.save();
+          setActiveChatId(id);
+          applySessionData(data);
+          setChatStoreReady(true);
+          return;
+        }
+
+        const data = await loadChatSession(chatStore, active);
+        if (data) {
+          setActiveChatId(active);
+          applySessionData(data);
+        } else if (idx.length) {
+          setActiveChatId(idx[0].id);
+          const data2 = await loadChatSession(chatStore, idx[0].id);
+          if (data2) applySessionData(data2);
+        }
+
         setChatStoreReady(true);
-        return;
+      } catch (err) {
+        console.error("Error initializing chat store:", err);
+        setChatStoreReady(true); // Still set ready to prevent blocking the UI
       }
-
-      const data = await loadChatSession(chatStore, active);
-      if (data) {
-        setActiveChatId(active);
-        applySessionData(data);
-      } else if (idx.length) {
-        setActiveChatId(idx[0].id);
-        const data2 = await loadChatSession(chatStore, idx[0].id);
-        if (data2) applySessionData(data2);
-      }
-
-      setChatStoreReady(true);
     })();
 
     return () => {

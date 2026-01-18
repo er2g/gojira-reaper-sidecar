@@ -3,15 +3,21 @@ import type { StatusEvent } from "../types";
 import { isTauriRuntime, tauriInvoke as invoke } from "../platform/tauri";
 
 const dotColor: Record<StatusEvent["status"], string> = {
-  disconnected: "#777",
+  disconnected: "#999",
   connecting: "#f0c000",
-  connected: "#00b070",
+  connected: "#45ffb5",
+};
+
+const statusIcon: Record<StatusEvent["status"], string> = {
+  disconnected: "⚠️",
+  connecting: "⟳",
+  connected: "✓",
 };
 
 export default function StatusBar({ status }: { status: StatusEvent }) {
   const retryText =
     status.status === "disconnected" && status.retry_in
-      ? ` (Retrying in ${status.retry_in}s...)`
+      ? ` Retrying in ${status.retry_in}s...`
       : "";
 
   return (
@@ -20,25 +26,27 @@ export default function StatusBar({ status }: { status: StatusEvent }) {
         <span
           className="dot"
           style={{ backgroundColor: dotColor[status.status] }}
+          aria-label={`Status: ${status.status}`}
         />
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <span className="statusText">
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <span className="statusText" style={{ fontWeight: 500 }}>
+            {statusIcon[status.status]}{" "}
             {status.status === "connected"
-              ? "Connected to Reaper"
+              ? "Connected to REAPER"
               : status.status === "connecting"
-                ? "Connecting..."
-                : `Disconnected${retryText}`}
+                ? "Connecting to REAPER..."
+                : `Not connected${retryText}`}
           </span>
           {status.status === "disconnected" ? (
-            <span className="muted" style={{ fontSize: 12 }}>
-              Tip: REAPER loads extension DLLs on startup. If you installed/updated the DLL while REAPER was open, restart REAPER.
+            <span className="muted" style={{ fontSize: 11, opacity: 0.7 }}>
+              💡 Make sure REAPER is running with Archetype Gojira loaded
             </span>
           ) : null}
         </div>
       </div>
       <div className="statusRight">
         <button
-          className="btn"
+          className="btn btnSmall"
           onClick={() => {
             if (!isTauriRuntime()) return;
             void (async () => {
@@ -48,8 +56,9 @@ export default function StatusBar({ status }: { status: StatusEvent }) {
           }}
           type="button"
           disabled={!isTauriRuntime()}
+          aria-label="Reconnect to REAPER"
         >
-          Reconnect Now
+          ⟳ Reconnect
         </button>
       </div>
     </div>

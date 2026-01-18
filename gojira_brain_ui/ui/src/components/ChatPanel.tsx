@@ -32,12 +32,11 @@ export default function ChatPanel(props: {
     <main className="panel chat">
       <div className="panelHeader">
         <div className="panelTitle">
-          <h2>AI Chat</h2>
+          <h2>Tone Generator</h2>
           <div className="muted">
-            {props.refineActive ? "Editing current tone (delta only)" : "Generating a fresh tone"}
+            {props.busy ? "Creating your tone..." : props.refineActive ? "Tweaking current tone" : "Ready to create"}
           </div>
         </div>
-        <div className="muted">{props.busy ? "Working…" : ""}</div>
       </div>
 
       <div className="chatWrap">
@@ -46,25 +45,27 @@ export default function ChatPanel(props: {
             <div key={m.id} className={`bubble ${m.role === "user" ? "bubbleUser" : "bubbleAssistant"}`}>
               {m.content}
               <div className="bubbleMeta">
-                <span>{m.role === "user" ? "You" : "AI"}</span>
-                <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <span>{m.role === "user" ? "You" : "Gojira AI"}</span>
+                <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button
-                    className="btn"
-                    style={{ padding: "4px 8px" }}
+                    className="btn btnSmall"
                     type="button"
                     onClick={() => props.onRevertToMessage(m.id)}
+                    title="Go back to this point"
+                    aria-label="Revert to this message"
                   >
-                    Revert
+                    ↩ Go Back
                   </button>
                   <button
-                    className="btn"
-                    style={{ padding: "4px 8px" }}
+                    className="btn btnSmall"
                     type="button"
                     onClick={() => props.onSnapshotMessage(m.id)}
+                    title="Save this tone for later"
+                    aria-label="Save snapshot"
                   >
-                    Snapshot
+                    ★ Save
                   </button>
-                  <span>{formatTime(m.ts)}</span>
+                  <span className="timestamp">{formatTime(m.ts)}</span>
                 </span>
               </div>
             </div>
@@ -83,14 +84,16 @@ export default function ChatPanel(props: {
               if (!props.canSend) return;
               props.onSend();
             }}
-            placeholder='Ask for a specific tone… or tweak the current one (e.g. "törpüle biraz, high-mid daha az, gate biraz daha az").'
+            placeholder="Describe the tone you want... (e.g., 'heavy modern djent rhythm' or 'add more high-mid, reduce gate')"
+            aria-label="Tone description input"
           />
           <div className="composerActions">
-            <div className="segmented" aria-label="Inspector">
+            <div className="segmented" aria-label="View options">
               <button
                 className={`segBtn ${props.tab === "preview" ? "segBtnActive" : ""}`}
                 type="button"
                 onClick={() => props.setTab("preview")}
+                aria-label="Preview tab"
               >
                 Preview
               </button>
@@ -98,30 +101,39 @@ export default function ChatPanel(props: {
                 className={`segBtn ${props.tab === "qc" ? "segBtnActive" : ""}`}
                 type="button"
                 onClick={() => props.setTab("qc")}
+                aria-label="Quality check tab"
               >
-                Applied QC
+                Quality Check
               </button>
               <button
                 className={`segBtn ${props.tab === "mapping" ? "segBtnActive" : ""}`}
                 type="button"
                 onClick={() => props.setTab("mapping")}
+                aria-label="Parameter mapping tab"
               >
-                Mapping
+                Settings
               </button>
             </div>
 
             <div className="composerButtons">
-              <button className="btn primary" disabled={props.busy || !props.canSend} onClick={props.onSend} type="button">
-                {props.busy ? "Generating…" : "Send"}
+              <button
+                className="btn primary"
+                disabled={props.busy || !props.canSend}
+                onClick={props.onSend}
+                type="button"
+                aria-label={props.busy ? "Generating tone" : "Generate tone"}
+              >
+                {props.busy ? "⚡ Generating..." : "⚡ Generate"}
               </button>
               <button
-                className="btn"
+                className="btn btnApply"
                 disabled={props.busy || !props.canApply}
                 onClick={props.onApply}
                 type="button"
-                title={props.pendingApply ? "Waiting for ACK…" : "Apply to REAPER"}
+                title={props.pendingApply ? "Applying to REAPER..." : "Apply tone to REAPER"}
+                aria-label={props.pendingApply ? "Applying tone" : "Apply tone to REAPER"}
               >
-                {props.pendingApply ? "Applying…" : "Apply"}
+                {props.pendingApply ? "⟳ Applying..." : "✓ Apply to REAPER"}
               </button>
             </div>
           </div>
